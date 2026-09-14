@@ -19,7 +19,11 @@ jobs:
       - name: Prepare and validate MaleCNS backend
         run: bash scripts/setup_neural.sh
       - name: Run offline real-connectome demo
+        continue-on-error: true
         run: ./run-neural.sh --llm mock --seed 0
+      - name: Validate real-connectome execution
+        if: always()
+        run: python scripts/check_neural_run.py --runs runs
       - name: Show run records
         if: always()
         run: |
