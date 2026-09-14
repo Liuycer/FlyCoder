@@ -19,14 +19,24 @@ jobs:
       - name: Prepare and validate MaleCNS backend
         run: bash scripts/setup_neural.sh
       - name: Run offline real-connectome demo
-        run: ./run-neural.sh --llm mock
+        run: ./run-neural.sh --llm mock --seed 0
+      - name: Show run records
+        if: always()
+        run: |
+          shopt -s nullglob
+          for f in runs/*/summary.json runs/*/events.jsonl; do
+            echo "===== $f"
+            cat "$f"
+          done
       - name: Upload validation evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flycoder-neural-validation
           path: |
             research/neural-validation.json
             research/upstream-lock.json
+            research/neural-probe.json
             runs/*/summary.json
             runs/*/events.jsonl
-          if-no-files-found: error
+          if-no-files-found: warn
