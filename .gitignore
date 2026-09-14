@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+runs/
+*.egg-info/
+build/
+dist/
+
+.venv-neural/
+vendor/
+research/
+*.zip

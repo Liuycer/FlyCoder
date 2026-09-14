@@ -1,0 +1,28 @@
+# Heavy self-contained Linux image for the fixed MaleCNS/DOOMFLY backend.
+FROM python:3.11-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHON311=python3 \
+    FLYCODER_RUNS=/data/runs \
+    NEURAL_MAPPING=/app/research/neural-map.json
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential clang curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . /app
+
+# The setup is intentionally performed at image-build time so the image either
+# contains verified data/kernel artifacts or fails before publication.
+RUN bash scripts/setup_neural.sh \
+    && useradd --create-home --uid 10001 flycoder \
+    && mkdir -p /data/runs \
+    && chown -R flycoder:flycoder /app /data
+
+USER flycoder
+VOLUME ["/data/runs"]
+ENTRYPOINT ["./run-neural.sh"]
+CMD ["--llm", "mock"]

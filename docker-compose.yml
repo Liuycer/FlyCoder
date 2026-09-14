@@ -1,0 +1,36 @@
+services:
+  flycoder:
+    build: .
+    init: true
+    command: ["demo"]
+    environment:
+      LLM_ADAPTER: ${LLM_ADAPTER:-mock}
+      CONNECTOME_ADAPTER: ${CONNECTOME_ADAPTER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-6000}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+      LLM_RETRY_BACKOFF: ${LLM_RETRY_BACKOFF:-0.5}
+      LLM_JSON_MODE: ${LLM_JSON_MODE:-json_object}
+      MAX_STEPS: ${MAX_STEPS:-12}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+      TEST_TIMEOUT: ${TEST_TIMEOUT:-15}
+    volumes:
+      - flycoder-runs:/data/runs
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    restart: "no"
+
+volumes:
+  flycoder-runs:

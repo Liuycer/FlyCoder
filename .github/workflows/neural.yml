@@ -1,0 +1,32 @@
+name: FlyCoder neural Linux check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linux-neural:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install native compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+      - name: Prepare and validate MaleCNS backend
+        run: bash scripts/setup_neural.sh
+      - name: Run offline real-connectome demo
+        run: ./run-neural.sh --llm mock
+      - name: Upload validation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: flycoder-neural-validation
+          path: |
+            research/neural-validation.json
+            research/upstream-lock.json
+            runs/*/summary.json
+            runs/*/events.jsonl
+          if-no-files-found: error
