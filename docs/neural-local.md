@@ -77,7 +77,7 @@ cd ~/Documents/ChatGPT/FlyCoder
 bash scripts/setup_neural.sh
 ```
 
-脚本固定上游提交、安装锁定依赖、下载并校验数据、构建内核、导入并审计数据、运行数值测试和校准。现有 checkout 版本不匹配会停止，不会覆盖其他版本。安装和大文件下载需要联网，运行纯离线 demo 不需要。
+脚本固定上游提交、把虚拟环境内的 pip 固定到 `26.2.1`（`--build-constraint` 仅存在于 pip ≥ 25.0，CI runner 自带 pip 常常更旧）、安装锁定依赖、下载并校验数据、构建内核、导入并审计数据、运行数值测试和校准。构建约束 `vendor/doomfly/neural-build-constraints.txt` 把构建期 setuptools 固定在 68.2.2，否则 Brian2 2.5.1 的 `setup.py` 会因新 setuptools 移除 `pkg_resources` 而失败。可用 `PIP_VERSION` 覆盖该 pin。现有 checkout 版本不匹配会停止，不会覆盖其他版本。安装和大文件下载需要联网，运行纯离线 demo 不需要。
 
 ```bash
 .venv-neural/bin/python scripts/validate_neural.py

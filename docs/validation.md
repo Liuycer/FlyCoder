@@ -23,5 +23,6 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - wheel 和 sdist 已在本机构建；wheel 包含内置 `calculator.py` 与测试资产。
 - wheel 已在源码目录外的临时虚拟环境安装，`flycoder demo --mock-first-pass` 返回 `done`。
 - 所有 Compose 与 workflow YAML 已通过本机 YAML 解析校验。
+- Linux Actions 首次运行：`FlyCoder checks`（含 Python 3.9/3.11/3.12 测试、打包 job）通过；`FlyCoder neural Linux check` 在 `bash scripts/setup_neural.sh` 失败，原因是 runner 自带 pip 早于 25.0，不认识 `--build-constraint`（`no such option: --build-constraint`）。已在 `setup_neural.sh` 中把 venv 内 pip 固定为 `26.2.1` 后重跑。
 - 本机未安装 Docker，因此 `Dockerfile.neural` 和 `docker-compose.neural.yml` 尚未实际构建。
 - 已增加 GitHub Actions 手动 Linux 神经验证工作流；在它成功运行前，Linux/Docker 神经后端仍属于未验证状态。

@@ -45,7 +45,7 @@ cd /tmp
 
 基础 CI 不下载 MaleCNS 数据。需要在 GitHub Actions 中手动触发 `FlyCoder neural Linux check`，它会：
 
-1. 在 Linux 上安装编译工具。
+1. 在 Linux 上安装编译工具；`setup_neural.sh` 会把 venv 内 pip 固定到 `26.2.1`，因为 `--build-constraint` 需要 pip ≥ 25.0。
 2. 下载并校验 MaleCNS v1.0。
 3. 构建 DOOMFLY 内核并运行上游数值测试。
 4. 运行项目测试和离线真实连接组 demo。
