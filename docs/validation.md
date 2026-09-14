@@ -1,6 +1,6 @@
 # 验证记录
 
-v0.2 当前验证见 [本机神经后端说明](neural-local.md)：34 项项目测试、15 项上游测试通过；真实连接组与 BAI 已联调成功，已执行合成刺激/断连/重放对照。以下为 v0.1 历史记录。
+v0.2 当前验证见 [本机神经后端说明](neural-local.md)：40 项项目测试、15 项上游测试通过；真实连接组与 BAI 已联调成功，已执行合成刺激/断连/重放对照。以下为 v0.1 历史记录。
 
 本次实际环境：macOS、Python 3.9.6、Git 2.50.1。
 
@@ -25,4 +25,7 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - 所有 Compose 与 workflow YAML 已通过本机 YAML 解析校验。
 - Linux Actions 首次运行：`FlyCoder checks`（含 Python 3.9/3.11/3.12 测试、打包 job）通过；`FlyCoder neural Linux check` 在 `bash scripts/setup_neural.sh` 失败，原因是 runner 自带 pip 早于 25.0，不认识 `--build-constraint`（`no such option: --build-constraint`）。已在 `setup_neural.sh` 中把 venv 内 pip 固定为 `26.2.1` 后重跑。
 - 本机未安装 Docker，因此 `Dockerfile.neural` 和 `docker-compose.neural.yml` 尚未实际构建。
-- 已增加 GitHub Actions 手动 Linux 神经验证工作流；在它成功运行前，Linux/Docker 神经后端仍属于未验证状态。
+- 后续提交 `741208a` 新增 `scripts/check_neural_run.py`，将“真实后端已运行但固定权重策略未解出玩具任务”的记录为可见警告，而不是基础设施失败；同时继续拒绝缺失 trace、异常后端、非有限分数或权重学习声明等错误。
+- Linux 原生神经验证工作流 [run 34858263269](https://github.com/Liuycer/FlyCoder/actions/runs/34858263269) 在 `741208a` 上通过。实际后端完成 4 个动作并产生逐步 trace；第 5 步因合法 READ/TEST 动作分数并列而按设计停止，未回退到 mock。
+- 推送后的 `FlyCoder checks` [run 34858236271](https://github.com/Liuycer/FlyCoder/actions/runs/34858236271) 通过。
+- 神经验证工作流仍未构建 `Dockerfile.neural`；本机未安装 Docker，因此 Linux 原生后端已验证，但容器化神经镜像仍属于未验证状态。

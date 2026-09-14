@@ -19,6 +19,7 @@ from flycoder.state import Action  # noqa: E402
 # Matched as prefixes: the controller appends detail such as '; no rule fallback'.
 POLICY_OUTCOMES = (
     'Legal neural action scores are tied',
+    'Neural readouts are silent',
     'Edit attempt budget exhausted',
     'Step budget exhausted',
 )

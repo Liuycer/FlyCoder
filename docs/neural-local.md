@@ -86,13 +86,13 @@ bash scripts/setup_neural.sh
 
 `compare_controllers.py --live` 会读取 `.env` 并产生真实 API 用量；默认不联网。对照只针对一个内置任务。
 
-证据文件：`research/upstream-lock.json`、`neural-probe.json`、`neural-validation.json`、`comparison-offline.json`、`comparison-live.json`、各步骤日志。上游完整边审计在 `research/data-audit.log`，固定环境在 `requirements-neural.lock.txt`。Linux 实测可手动触发 `.github/workflows/neural.yml`。
+证据文件：`research/upstream-lock.json`、`neural-probe.json`、`neural-validation.json`、`comparison-offline.json`、`comparison-live.json`、各步骤日志。上游完整边审计在 `research/data-audit.log`，固定环境在 `requirements-neural.lock.txt`。Linux 实测由 `.github/workflows/neural.yml` 手动触发；`scripts/check_neural_run.py` 会逐个动作核验真实后端 trace，并把动作并列、读出静默或预算耗尽区分为策略结果而非基础设施故障。
 
 ## 当前边界
 
 最高分并列、读出沉默、图或映射校验不一致时明确报错，不自动退回 mock。合法动作约束、DONE 测试门槛和预算仍由工程代码执行。奖励只是记录和状态输入，未证明学习。
 
-FlyWire 未接入。基础 `Dockerfile` 不含神经环境；新增的 `Dockerfile.neural` 和 `docker-compose.neural.yml` 已完成静态配置，GitHub Actions 手动工作流可在 Linux 上准备并运行真实后端。三者尚未在当前 macOS 环境执行，因为本机未安装 Docker，所以不能说 Linux/Docker 神经链路已经实测通过。项目未发布到服务器。
+FlyWire 未接入。基础 `Dockerfile` 不含神经环境；新增的 `Dockerfile.neural` 和 `docker-compose.neural.yml` 已完成静态配置。GitHub Actions 的手动工作流已在 Ubuntu 上成功准备并运行真实 MaleCNS/DOOMFLY 后端；该工作流直接执行 `scripts/setup_neural.sh`，不等于构建或验证了 Docker 镜像。本机未安装 Docker，因此容器化神经镜像仍未实测。项目未发布到服务器。
 
 Git sandbox 仍是可信仓库的文件副本隔离，不适用于执行陌生人上传的恶意代码。
 
