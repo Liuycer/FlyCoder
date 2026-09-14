@@ -92,7 +92,7 @@ bash scripts/setup_neural.sh
 
 最高分并列、读出沉默、图或映射校验不一致时明确报错，不自动退回 mock。合法动作约束、DONE 测试门槛和预算仍由工程代码执行。奖励只是记录和状态输入，未证明学习。
 
-FlyWire 未接入。基础 `Dockerfile` 不含神经环境；新增的 `Dockerfile.neural` 和 `docker-compose.neural.yml` 已完成静态配置。GitHub Actions 的手动工作流已在 Ubuntu 上成功准备并运行真实 MaleCNS/DOOMFLY 后端；该工作流直接执行 `scripts/setup_neural.sh`，不等于构建或验证了 Docker 镜像。本机未安装 Docker，因此容器化神经镜像仍未实测。项目未发布到服务器。
+FlyWire 未接入。基础 `Dockerfile` 不含神经环境；新增的 `Dockerfile.neural` 和 `docker-compose.neural.yml` 已完成静态配置。GitHub Actions 的手动工作流已在 Ubuntu 上成功准备并运行真实 MaleCNS/DOOMFLY 后端；该工作流直接执行 `scripts/setup_neural.sh`，不等于构建或验证了 Docker 镜像。本机已安装 Docker 29.8.0，此前重型神经镜像构建曾进入导出阶段后因 Docker daemon 连接 EOF 失败，因此容器化神经镜像仍没有完整构建并运行实测。项目未发布到服务器。
 
 Git sandbox 仍是可信仓库的文件副本隔离，不适用于执行陌生人上传的恶意代码。
 

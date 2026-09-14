@@ -62,7 +62,21 @@ Controller 的 error 事件还包含失败阶段、当前状态、候选文件�
 
 这说明差异不只是验收脚本的处理方式。映射不同影响动作评分，但不能单独解释完整放电数组的差异。相同图与当前刺激也不足以排除初始状态、运行时或数值执行差异；旧日志缺少环境/内核元数据，因此不能确定为某个 CPU 或编译器问题。
 
-本次没有修改参数强行消除差异，也没有添加随机回退。下一次 Linux 运行将上传新增失败现场、读出映射和内核构建记录，便于在同一映射与刺激序列下做受控重放。
+后续提交 `fa0ef3a` 增加了固定映射受控重放和独立的 `-ffp-contract=off` 诊断内核，用来把输入/映射差异与浮点数值执行差异分开。
+
+## 受控重放与浮点收缩诊断
+
+使用 [run 34864923823](https://github.com/Liuycer/FlyCoder/actions/runs/34864923823) 在 `fa0ef3a` 上传的受控重放证据，固定观察序列和 `diagnostics/reference-map.json`。此时 macOS 与 Linux 的图和读出映射哈希一致（均为 `346b8af85a11…` 与 `f503ae431d3c…`）。对比结果如下：
+
+| 对比 | 输入 | 放电 | 分数 | 内部状态差异 |
+| --- | --- | --- | --- | --- |
+| macOS 默认内核 vs Linux 默认内核 | 一致 | 不一致 | 第 1 次一致，第 2/3 次不一致 | `v`、`g`、`refractory`、队列/活动状态等 |
+| Linux 默认内核 vs Linux no-contract 内核 | 一致 | 一致 | 一致 | 无 |
+| macOS no-contract vs Linux no-contract | 一致 | 一致 | 一致 | 仅 `v`、`g` |
+
+Linux 默认内核与诊断内核记录的二进制哈希同为 `b46d3c318f7a…`；no-contract 对照也没有改变 Linux 上的放电、分数或数组。因此在本测试的 Ubuntu clang 18/x86_64 固定工作负载中，浮点收缩（FMA contraction）不是受控输出差异的根因。关闭收缩后，macOS/Linux 的读出放电和分数一致，但内部 `v/g` 仍有平台相关差异；这说明低层状态并非逐位跨平台可复现，当前验收应继续以同平台重放和逐步证据为准。
+
+同一次 Linux 真实运行仍使用演示产生的映射 `3b25548a5476…`，第 5 步在合法 READ/TEST 并列处停止：两个分数均为 31.8 Hz，`top_margin_hz=0.0`。严格报告结论是 `backend_verified=true, task_solved=false, outcome=tied_scores`。
 
 只读对比两次记录：
 
@@ -81,7 +95,8 @@ Controller 的 error 事件还包含失败阶段、当前状态、候选文件�
 - 基础 Python 环境：55 项测试运行通过，其中 2 项可选 NumPy 测试跳过。
 - 覆盖缺少 TEST/DONE、伪通过、全跳过、过期指纹、错误 summary、并列现场、沉默、过期 trace、伪装错误原因、预算耗尽、非有限值和不合法 JSON 结构等反例。
 - 新版本真实 MaleCNS + mock coding demo 完成 8 个动作，严格 `--require-done` 验收通过。
+- `fa0ef3a` 的 GitHub Actions checks 与神经工作流均通过；神经 run 34864923823 已上传受控重放、no-contract 重放、内核元数据和严格验收报告。
 - 没有发起 BAI/API 调用，没有构建神经 Docker 镜像。
-- 修改仅在本地；GitHub workflow 上传配置已更新，但本次未推送、未重新运行远程 CI。
+- 修改已推送到 GitHub 并在远程 CI 中复验；神经 Docker 镜像仍待完整构建和运行实测。
 
 本地证据：`research/evidence-tests.log`、`evidence-base-tests.log`、`evidence-check.json`、`evidence-runs/`、`platform-comparison.json`。它们不进入普通源码提交。
