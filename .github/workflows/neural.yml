@@ -20,6 +20,10 @@ jobs:
         run: bash scripts/setup_neural.sh
       - name: Replay fixed cross-platform inputs and mapping
         run: .venv-neural/bin/python scripts/replay_neural.py
+      - name: Diagnose floating-point contraction separately
+        run: |
+          .venv-neural/bin/python scripts/build_diagnostic_kernel.py
+          DOOM_KERNEL_PATH="$PWD/research/libneural-no-contract.so" .venv-neural/bin/python scripts/replay_neural.py --output research/no-contract-replay.json
       - name: Run offline real-connectome demo
         run: ./run-neural.sh --llm mock --seed 0 --runs research/ci-neural-runs || true
       - name: Validate real-connectome execution
@@ -40,6 +44,8 @@ jobs:
           name: flycoder-neural-validation
           path: |
             research/controlled-replay.json
+            research/no-contract-replay.json
+            research/libneural-no-contract.so.json
             research/neural-validation.json
             research/upstream-lock.json
             research/neural-probe.json
