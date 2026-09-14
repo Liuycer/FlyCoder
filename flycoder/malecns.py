@@ -2,11 +2,12 @@
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import sys
 import time
 
-from .connectome import NeuralBackend
+from .connectome import NeuralBackend, NeuralSelectionError
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = ROOT / 'vendor/doomfly'
@@ -79,6 +80,14 @@ class MaleCNSBackend(NeuralBackend):
         if self.control == 'shuffled-readout':
             names = np.random.default_rng(seed + 100).permutation(ACTIONS).tolist()
             self.groups = {a: self.groups[b] for a, b in zip(ACTIONS, names)}
+        from doom.native import BUILD
+        self.provenance = {
+            'platform': platform.system(), 'machine': platform.machine(),
+            'python': platform.python_version(), 'numpy': np.__version__,
+            'kernel_source_sha256': BUILD['kernel_source_sha256'],
+            'kernel_binary_sha256': BUILD['binary_sha256'],
+            'readout_sizes': {a: len(g) for a, g in self.groups.items()},
+        }
         self.last_reward = 0.0
         self.last_trace = {}
         self.calls = 0
@@ -94,8 +103,6 @@ class MaleCNSBackend(NeuralBackend):
         start = time.perf_counter()
         counts, kernel_seconds = self.brain.step(stimulus, self.duration_ms)
         rates = {a: float(counts[g].mean() * 1000 / self.duration_ms) for a, g in self.groups.items()}
-        if self.control == 'intact' and not any(v > 0 for v in rates.values()):
-            raise RuntimeError('Neural readouts are silent; no mock fallback')
         self.calls += 1
         self.last_trace = {'backend': 'MaleCNS/DOOMFLY fixed-weight NativeBrain',
             'control': self.control, 'call': self.calls, 'neurons': self.brain.n,
@@ -103,10 +110,14 @@ class MaleCNSBackend(NeuralBackend):
             'cumulative_simulated_ms': self.brain.sim_ms, 'kernel_seconds': kernel_seconds,
             'wall_seconds': time.perf_counter() - start, 'total_spikes': int(counts.sum()),
             'active_neurons': int(np.count_nonzero(counts)), 'scores_hz': rates,
+            'readout_spikes': {a: int(counts[g].sum()) for a, g in self.groups.items()},
+            'provenance': self.provenance,
             'stimulus_sha256': hashlib.sha256(stimulus.tobytes()).hexdigest(),
             'spikes_sha256': hashlib.sha256(counts.tobytes()).hexdigest(),
             'graph_sha256': self.config['graph_sha256'], 'mapping_sha256': digest(self.mapping_path),
             'weight_learning': False, 'feedback_reward': self.last_reward}
+        if self.control == 'intact' and not any(v > 0 for v in rates.values()):
+            raise NeuralSelectionError('silent_readouts', 'Neural readouts are silent; no mock fallback')
         return rates
 
     def reward(self, value):

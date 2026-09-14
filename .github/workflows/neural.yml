@@ -18,16 +18,18 @@ jobs:
           sudo apt-get install -y clang
       - name: Prepare and validate MaleCNS backend
         run: bash scripts/setup_neural.sh
+      - name: Replay fixed cross-platform inputs and mapping
+        run: .venv-neural/bin/python scripts/replay_neural.py
       - name: Run offline real-connectome demo
-        run: ./run-neural.sh --llm mock --seed 0 || true
+        run: ./run-neural.sh --llm mock --seed 0 --runs research/ci-neural-runs || true
       - name: Validate real-connectome execution
         if: always()
-        run: python scripts/check_neural_run.py --runs runs
+        run: python scripts/check_neural_run.py --runs research/ci-neural-runs --report research/neural-run-check.json
       - name: Show run records
         if: always()
         run: |
           shopt -s nullglob
-          for f in runs/*/summary.json runs/*/events.jsonl; do
+          for f in research/ci-neural-runs/*/summary.json research/ci-neural-runs/*/events.jsonl; do
             echo "===== $f"
             cat "$f"
           done
@@ -37,9 +39,13 @@ jobs:
         with:
           name: flycoder-neural-validation
           path: |
+            research/controlled-replay.json
             research/neural-validation.json
             research/upstream-lock.json
             research/neural-probe.json
-            runs/*/summary.json
-            runs/*/events.jsonl
+            research/neural-run-check.json
+            research/neural-map.json
+            vendor/doomfly/outputs/doom/libneural.so.json
+            research/ci-neural-runs/*/summary.json
+            research/ci-neural-runs/*/events.jsonl
           if-no-files-found: warn

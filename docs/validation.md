@@ -29,3 +29,8 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - Linux 原生神经验证工作流 [run 34858263269](https://github.com/Liuycer/FlyCoder/actions/runs/34858263269) 在 `741208a` 上通过。实际后端完成 4 个动作并产生逐步 trace；第 5 步因合法 READ/TEST 动作分数并列而按设计停止，未回退到 mock。
 - 推送后的 `FlyCoder checks` [run 34858236271](https://github.com/Liuycer/FlyCoder/actions/runs/34858236271) 通过。
 - 神经验证工作流仍未构建 `Dockerfile.neural`；本机未安装 Docker，因此 Linux 原生后端已验证，但容器化神经镜像仍属于未验证状态。
+
+
+## 验收与并列现场修复
+
+已增加 v2 证据校验及当前失败现场记录，55 项神经环境测试通过；详见 [验收与诊断说明](neural-evidence.md)。历史日志缺少新字段，严格验收需重新运行。本次修改尚未推送或触发远程 CI。

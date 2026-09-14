@@ -1,5 +1,6 @@
 """The policy sees numeric observations and chooses one of five actions only."""
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from typing import Sequence
 
 from .state import Action
@@ -66,29 +67,66 @@ class NeuralBackend(ABC):
         pass
 
 
+class NeuralSelectionError(RuntimeError):
+    """A measured policy outcome, with a stable machine-readable reason."""
+    def __init__(self, reason, message):
+        super().__init__(message)
+        self.reason = reason
+
+
 class NeuralConnectome(ConnectomeAdapter):
-    """Select legal actions from an explicitly injected neural backend."""
+    """Record every selection attempt before enforcing the no-fallback rule."""
     def __init__(self, backend: NeuralBackend):
         self.backend = backend
+        self.last_trace = None
+        self.last_decision = None
 
     def reset(self, seed: int = 0) -> None:
+        self.last_trace = None
+        self.last_decision = None
         self.backend.reset(seed)
 
     def select(self, observation: dict, allowed: Sequence[Action]) -> Action:
         import math
-        scores = self.backend.stimulate_and_step(observation["features"])
-        if not allowed or any(
-            not isinstance(scores.get(a.value), (int, float))
-            or not math.isfinite(scores[a.value]) for a in allowed
-        ):
-            raise ValueError("Backend must return finite scores for every legal action")
-        if (getattr(self.backend, 'requires_distinct_scores', False) and len(allowed) > 1
-                and sum(scores[a.value] == max(scores[b.value] for b in allowed) for a in allowed) > 1):
-            raise RuntimeError("Legal neural action scores are tied; no rule fallback")
-        action = max(allowed, key=lambda a: scores[a.value])
-        self.last_trace = dict(getattr(self.backend, 'last_trace', {}))
-        self.last_trace['selected_action'] = action.value
-        return action
+        self.last_trace = None
+        if hasattr(self.backend, 'last_trace'):
+            self.backend.last_trace = None
+        self.last_decision = {
+            'observation': deepcopy(observation), 'allowed': [a.value for a in allowed],
+            'status': 'pending', 'reason': None, 'selected_action': None,
+            'scores_hz': None, 'best_score_hz': None, 'top_margin_hz': None,
+            'tied_actions': [],
+        }
+        try:
+            scores = self.backend.stimulate_and_step(observation['features'])
+            self.last_trace = deepcopy(getattr(self.backend, 'last_trace', None))
+            if not isinstance(scores, dict) or not allowed or any(
+                isinstance(scores.get(a.value), bool)
+                or not isinstance(scores.get(a.value), (int, float))
+                or not math.isfinite(scores[a.value]) for a in allowed
+            ):
+                raise ValueError('Backend must return finite scores for every action')
+            self.last_decision['scores_hz'] = dict(scores)
+            best = max(scores[a.value] for a in allowed)
+            tied = [a.value for a in allowed if scores[a.value] == best]
+            ordered = sorted((scores[a.value] for a in allowed), reverse=True)
+            self.last_decision.update(best_score_hz=best, tied_actions=tied,
+                                      top_margin_hz=ordered[0] - ordered[1] if len(ordered) > 1 else None)
+            if getattr(self.backend, 'requires_distinct_scores', False) and len(tied) > 1:
+                raise NeuralSelectionError('tied_scores', 'Legal neural action scores are tied; no rule fallback')
+            action = max(allowed, key=lambda a: scores[a.value])
+            self.last_decision.update(status='selected', selected_action=action.value)
+            if self.last_trace is not None:
+                self.last_trace['selected_action'] = action.value
+            return action
+        except Exception as exc:
+            if self.last_trace is None:
+                self.last_trace = deepcopy(getattr(self.backend, 'last_trace', None))
+            reason = exc.reason if isinstance(exc, NeuralSelectionError) else 'backend_error'
+            self.last_decision.update(status='rejected', reason=reason)
+            if reason == 'silent_readouts' and self.last_trace:
+                self.last_decision['scores_hz'] = deepcopy(self.last_trace.get('scores_hz'))
+            raise
 
     def feedback(self, reward: float, observation: dict) -> None:
         self.backend.reward(reward)

@@ -15,6 +15,7 @@ class TestResult:
     timed_out: bool
     tests_run: int
     output: str
+    tests_skipped: int = 0
 
 
 class TestRunner:
@@ -67,4 +68,4 @@ class TestRunner:
         skipped = re.findall(r"skipped=(\d+)", output)
         skipped_count = int(skipped[-1]) if skipped else 0
         passed = proc.returncode == 0 and not timed_out and count > skipped_count
-        return TestResult(passed, proc.returncode, timed_out, count, output)
+        return TestResult(passed, proc.returncode, timed_out, count, output, skipped_count)

@@ -208,3 +208,8 @@ docker compose -f docker-compose.neural.yml run --rm flycoder-neural --llm mock
 ```
 
 该镜像会下载约 1.1 GB 输入并在镜像中保留标准化数据和 Python 环境，构建时间和磁盘占用显著高于基础镜像。GitHub Actions 的 `FlyCoder neural Linux check` 工作流已在 Ubuntu runner 上通过同一 `scripts/setup_neural.sh` 准备真实后端，并逐步核验 MaleCNS/DOOMFLY 运行记录；固定权重动作并列或预算耗尽会记录为策略结果，不会被误判为后端故障。该工作流不构建 `Dockerfile.neural`，且本机未安装 Docker，因此容器化神经镜像仍未实测。
+
+
+## 验收与并列现场修复
+
+已增加 v2 证据校验及当前失败现场记录，55 项神经环境测试通过；详见 [验收与诊断说明](docs/neural-evidence.md)。历史日志缺少新字段，严格验收需重新运行。本次修改尚未推送或触发远程 CI。
