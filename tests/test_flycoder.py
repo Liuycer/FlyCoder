@@ -58,6 +58,13 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(result["status"], "exhausted")
         self.assertFalse(result["state"]["passed"])
 
+    def test_mock_run_records_zero_llm_usage(self):
+        result = self.run_flow(coder=MockCodingAdapter(False))
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(result["llm_calls"], 0)
+        self.assertEqual(result["llm_http_attempts"], 0)
+        self.assertEqual(result["llm_usage"], [])
+
     def test_step_exhaustion(self):
         self.assertEqual(self.run_flow(max_steps=1)["status"], "exhausted")
 
@@ -93,6 +100,43 @@ class FlowTests(unittest.TestCase):
         p.symlink_to(EXAMPLE / "calculator.py")
         with self.assertRaises(ValueError):
             self.box.apply({"calculator.py": "bad"})
+
+    def test_llm_usage_extracted_from_completed_run(self):
+        class MeteredCoder(MockCodingAdapter):
+            def __init__(self):
+                super().__init__(False)
+                self.http_attempts = 2
+                self.usage_records = [
+                    {"input_tokens": 123, "output_tokens": 45},
+                    {"input_tokens": 234, "output_tokens": 67},
+                ]
+
+        result = self.run_flow(coder=MeteredCoder())
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(result["llm_calls"], 2)
+        self.assertEqual(result["llm_http_attempts"], 2)
+        self.assertEqual(result["llm_usage"],
+                         [{"input_tokens": 123, "output_tokens": 45},
+                          {"input_tokens": 234, "output_tokens": 67}])
+
+    def test_llm_usage_handles_partial_token_fields(self):
+        class PartialCoder(MockCodingAdapter):
+            def __init__(self):
+                super().__init__(False)
+                self.http_attempts = 3
+                self.usage_records = [
+                    {"input_tokens": 100},
+                    {"output_tokens": 50},
+                    {},
+                ]
+
+        result = self.run_flow(coder=PartialCoder())
+        self.assertEqual(result["llm_calls"], 3)
+        self.assertEqual(result["llm_http_attempts"], 3)
+        self.assertEqual(result["llm_usage"],
+                         [{"input_tokens": 100},
+                          {"output_tokens": 50},
+                          {}])
 
 
 class RunnerTests(unittest.TestCase):
@@ -164,7 +208,6 @@ class AdapterTests(unittest.TestCase):
         with patch("urllib.request.urlopen", return_value=io.BytesIO(b'{"status":"incomplete"}')):
             with self.assertRaises(RuntimeError):
                 OpenAICodingAdapter("configured-model", "fake-key").read("task", {})
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -53,10 +53,36 @@ class Controller:
         with (self.run_dir / "events.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+    def llm_usage_summary(self) -> dict:
+        """Extract metered LLM calls/tokens; Mock adapter has neither field."""
+        records = getattr(self.coder, 'usage_records', None)
+        attempts = getattr(self.coder, 'http_attempts', 0)
+        if not isinstance(records, list):
+            records = []
+        if not isinstance(attempts, int) or attempts < 0:
+            attempts = 0
+        usage = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            entry = {}
+            for key in ('input_tokens', 'output_tokens'):
+                value = record.get(key)
+                if type(value) is int and value >= 0:
+                    entry[key] = value
+            usage.append(entry)
+        return {
+            'llm_calls': len(usage),
+            'llm_http_attempts': attempts,
+            'llm_usage': usage,
+        }
+
     def finish(self, status: str, reason: str) -> dict:
+        usage = self.llm_usage_summary()
         summary = {"schema": "flycoder.run.v2", "status": status, "reason": reason, "state": self.state.snapshot(),
                    "sandbox": str(self.sandbox.root),
                    "policy": type(self.policy).__name__, "coder": type(self.coder).__name__,
+                   **usage,
                    "explore_actions": self.explore_actions, "seed": self.seed,
                    "tie_extra_windows": getattr(self.policy, "tie_extra_windows", 0),
                    "max_steps": self.max_steps, "max_attempts": self.max_attempts,
