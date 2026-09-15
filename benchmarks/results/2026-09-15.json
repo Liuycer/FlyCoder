@@ -1,0 +1,108 @@
+{
+  "schema": "flycoder.benchmark-summary.v1",
+  "implementation_commit": "24f557d",
+  "remote_run": "https://github.com/Liuycer/FlyCoder/actions/runs/34939855824",
+  "suite_sha256": "e4d748840113595be5977385c7c5d35e978d8c30915d9ec61a758d8013b12216",
+  "budgets": {
+    "max_steps": 12,
+    "max_attempts": 3,
+    "test_timeout_seconds": 15,
+    "neural_window_ms": 100,
+    "max_neural_windows_per_run": 36
+  },
+  "offline_fixture": true,
+  "llm_calls": 0,
+  "cost_usd": 0,
+  "independently_verified_neural_runs": 48,
+  "mac": {
+    "report_sha256": "7f6357a52b61702ae11e2de23fd0774962b7d0795b4eb89bff55540eb3ed71ee",
+    "aggregate": {
+      "mock": {
+        "runs": 12,
+        "successes": 12,
+        "success_rate": 1.0,
+        "tie_decisions": 0,
+        "terminal_ties": 0,
+        "mean_steps": 7.0,
+        "coding_calls": 36,
+        "simulated_ms": 0
+      },
+      "random": {
+        "runs": 12,
+        "successes": 11,
+        "success_rate": 0.9166666666666666,
+        "tie_decisions": 0,
+        "terminal_ties": 0,
+        "mean_steps": 7.833333333333333,
+        "coding_calls": 56,
+        "simulated_ms": 0
+      },
+      "malecns": {
+        "runs": 12,
+        "successes": 12,
+        "success_rate": 1.0,
+        "tie_decisions": 0,
+        "terminal_ties": 0,
+        "mean_steps": 8.0,
+        "coding_calls": 48,
+        "simulated_ms": 9600.0
+      },
+      "accumulating": {
+        "runs": 12,
+        "successes": 12,
+        "success_rate": 1.0,
+        "tie_decisions": 0,
+        "terminal_ties": 0,
+        "mean_steps": 8.0,
+        "coding_calls": 48,
+        "simulated_ms": 9600.0
+      }
+    }
+  },
+  "linux_x86_64": {
+    "report_sha256": "e81ab713c8be7d163cdd5afcbbcdc6d848f2d3d99b518f47fce8038d188cc7b7",
+    "aggregate": {
+      "mock": {
+        "runs": 12,
+        "successes": 12,
+        "success_rate": 1.0,
+        "tie_decisions": 0,
+        "terminal_ties": 0,
+        "mean_steps": 7.0,
+        "coding_calls": 36,
+        "simulated_ms": 0
+      },
+      "random": {
+        "runs": 12,
+        "successes": 11,
+        "success_rate": 0.9166666666666666,
+        "tie_decisions": 0,
+        "terminal_ties": 0,
+        "mean_steps": 7.833333333333333,
+        "coding_calls": 56,
+        "simulated_ms": 0
+      },
+      "malecns": {
+        "runs": 12,
+        "successes": 0,
+        "success_rate": 0.0,
+        "tie_decisions": 12,
+        "terminal_ties": 12,
+        "mean_steps": 4.0,
+        "coding_calls": 48,
+        "simulated_ms": 6000.0
+      },
+      "accumulating": {
+        "runs": 12,
+        "successes": 12,
+        "success_rate": 1.0,
+        "tie_decisions": 12,
+        "terminal_ties": 0,
+        "mean_steps": 6.0,
+        "coding_calls": 48,
+        "simulated_ms": 8400.0
+      }
+    }
+  },
+  "limitations": "Fixtures test orchestration, not LLM coding ability. Seeds affect random policy; fixed neural reset is deterministic. Extra simulation is measured, not equal compute. Live monetary cost unavailable; consult provider billing. No learning or code understanding by connectome."
+}

@@ -215,3 +215,8 @@ docker compose -f docker-compose.neural.yml run --rm flycoder-neural --llm mock
 ## 验收与并列现场修复
 
 已增加 v2 证据校验及当前失败现场记录，55 项神经环境测试通过；详见 [验收与诊断说明](docs/neural-evidence.md)。历史日志缺少新字段，严格验收需重新运行。相关修改已推送并通过远程 CI；受控重放显示：在 macOS 上关闭浮点收缩后，三次放电数组和动作分数均与 Linux 一致，但内部电压、电导仍有差异；该结果不保证任意任务跨平台逐位一致。神经 Docker 镜像已于 2026-09-15 完成本机构建、运行和严格验收。
+
+
+## 策略评测与并列累计实验
+
+已加入四类 bug 的固定候选评测，以及默认关闭的并列累计策略。用 `.venv-neural/bin/python scripts/benchmark_policies.py` 运行离线对照；用 `./run-neural.sh --llm mock --tie-extra-windows 2` 体验实验策略。它最多追加两段模拟，仍并列则停止。参见 [评测方法、预算与结果](docs/policy-benchmark.md)。
