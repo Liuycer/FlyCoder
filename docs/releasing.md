@@ -53,7 +53,7 @@ cd /tmp
 
 只有该工作流在目标提交上通过，才能把 Linux 原生神经后端标记为已实测。
 
-神经 Docker 镜像另有手动触发的 `FlyCoder neural Docker check`。它会在 Ubuntu runner 上构建 `Dockerfile.neural`、执行安全容器 demo、运行 `--require-done` 严格验收，并上传包含 manifest 的证据包。若要把 Docker 神经链路标记为远程干净环境实测，必须以目标 commit 上该工作流通过并附带的 artifact 为准；[神经 Docker 验证](neural-docker-verification.md)记录本机证据和复查流程。
+神经 Docker 镜像另有手动触发的 `FlyCoder neural Docker check`。它会在 Ubuntu runner 上构建 `Dockerfile.neural`、执行安全容器 demo、运行严格日志验收，并上传包含 manifest 的证据包。远程 x86_64 结果可能因固定权重策略并列而非任务解决；这仍然是有效的后端证据，但 release notes 必须写明具体 outcome，不得把它说成 `task_solved`。若要把 Docker 神经链路标记为远程干净环境实测，必须以目标 commit 上该工作流通过并附带的 artifact 为准；[神经 Docker 验证](neural-docker-verification.md)记录本机证据和复查流程。
 
 ## 5. GitHub 发布
 

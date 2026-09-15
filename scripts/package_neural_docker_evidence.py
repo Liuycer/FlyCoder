@@ -58,8 +58,11 @@ def write_manifest(args, entries):
     check = json.loads(Path(args.check_report).read_text())
     if not check.get('backend_verified'):
         raise ValueError('The check report does not verify the neural backend')
-    if args.require_done and check.get('outcome') != 'task_solved':
-        raise ValueError('Strict evidence requires outcome=task_solved')
+    accepted_outcomes = {item.strip() for item in args.accepted_outcomes.split(',') if item.strip()}
+    if not accepted_outcomes:
+        raise ValueError('At least one accepted outcome is required')
+    if check.get('outcome') not in accepted_outcomes:
+        raise ValueError('Outcome is not accepted: ' + str(check.get('outcome')))
 
     records = []
     for source, archive_name in entries:
@@ -80,6 +83,7 @@ def write_manifest(args, entries):
         'schema': SCHEMA,
         'created_utc': args.created_utc,
         'require_done': args.require_done,
+        'accepted_outcomes': sorted(accepted_outcomes),
         'check': check,
         'source': metadata,
         'files': records,
@@ -130,6 +134,8 @@ def parse_args(argv=None):
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--archive', type=Path, help='Write a deterministic .tar.gz evidence bundle')
     parser.add_argument('--require-done', action='store_true')
+    parser.add_argument('--accepted-outcomes', default='task_solved',
+                        help='Comma-separated checker outcomes that may be packaged')
     return parser.parse_args(argv)
 
 

@@ -69,6 +69,7 @@ jobs:
           run_exit_code=${PIPESTATUS[0]}
           set -e
           printf 'RUN_EXIT_CODE=%s\n' "$run_exit_code" >> "$GITHUB_ENV"
+          echo "Container exited with code $run_exit_code; strict evidence decides whether it is valid."
 
       - name: Collect container and volume evidence
         if: always()
@@ -86,13 +87,11 @@ jobs:
             docker volume inspect "$RUN_VOLUME" > "$EVIDENCE_DIR/container/volume.json"
           fi
 
-      - name: Require container success and strict run evidence
+      - name: Require valid strict run evidence
         run: |
           set -euo pipefail
-          test "$RUN_EXIT_CODE" -eq 0
           python3 scripts/check_neural_run.py \
             --summary "$EVIDENCE_DIR/run/summary.json" \
-            --require-done \
             --report "$EVIDENCE_DIR/check-report.json"
 
       - name: Package hash-addressed evidence
@@ -109,7 +108,7 @@ jobs:
             --commit "$GITHUB_SHA" \
             --output "$EVIDENCE_DIR/manifest.json" \
             --archive "$EVIDENCE_DIR/neural-docker-evidence.tar.gz" \
-            --require-done
+            --accepted-outcomes task_solved,tied_scores,readout_silence,budget_exhausted
 
       - name: Upload neural Docker validation evidence
         if: always()

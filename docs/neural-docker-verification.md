@@ -1,8 +1,8 @@
 # 神经 Docker 验证与证据打包
 
-本文说明如何保存、复查和复现 `Dockerfile.neural` 的运行证据。证据校验器检查日志一致性；它不能证明外部提交的文件没有被恶意伪造，但可以防止把过期 trace、伪通过、预算停止或并列策略误报为成功。
+本文说明如何保存、复查和复现 `Dockerfile.neural` 的运行证据。证据校验器检查日志一致性；它不能证明外部提交的文件没有被恶意伪造，但可以防止把过期 trace、伪通过、预算停止或并列策略误报为任务解决。
 
-## 成功条件
+## 本机任务成功条件
 
 一次成功验收必须同时满足：
 
@@ -11,6 +11,19 @@
 3. 使用 `--require-done` 时返回 `task_solved=true`、`outcome=task_solved`。
 4. `summary.json`、`events.jsonl`、神经 trace、镜像/容器配置和日志一起保存。
 5. 并列分数、读出沉默、预算耗尽可作为策略结果记录，但不能在 `--require-done` 下计为任务解决。
+
+固定权重策略的输出依赖平台浮点行为。远程 Ubuntu runner 是 x86_64，可能在本机 Linux/arm64 能完成的同一个 demo 上出现合法 READ/TEST 并列。因此远程干净环境检查区分两件事：`backend_verified=true` 只证明真实神经后端和证据链有效；`task_solved=true` 才证明容器内任务进入 `DONE`。
+
+## 远程干净环境检查条件
+
+`FlyCoder neural Docker check` 要求 `backend_verified=true`，并接受以下明确的 checker 结果：
+
+- `task_solved`
+- `tied_scores`
+- `readout_silence`
+- `budget_exhausted`
+
+后端错误、缺 trace、非法动作、伪通过、日志结构不一致或容器被 OOM 杀死仍会让工作流失败。manifest 会记录 `accepted_outcomes`，因此通过工件可以确认这次结果是否被当作策略结果而不是任务解决。
 
 ## 证据打包
 
@@ -32,6 +45,16 @@ python3 scripts/package_neural_docker_evidence.py \
 ```
 
 manifest 使用 schema `flycoder.neural-docker-evidence.v1`。它只保存路径、字节数、哈希、验收报告摘要和 GitHub 元数据；不保存密钥值。`research/` 仍被项目规则排除在源码提交之外。
+
+如果要把非任务解决结果也保存为策略证据，改用：
+
+```bash
+python3 scripts/package_neural_docker_evidence.py \
+  --run-dir research/docker-neural-runs/<run-id> \
+  --check-report research/docker-neural-check.json \
+  --output research/docker-neural-evidence-manifest.json \
+  --accepted-outcomes task_solved,tied_scores,readout_silence,budget_exhausted
+```
 
 复查压缩包时，先展开，再重跑严格验收器：
 
@@ -68,7 +91,7 @@ python3 scripts/check_neural_run.py \
 2. 导出 compose 配置和镜像 inspect 元数据。
 3. 以非 root、只读根文件系统、drop capabilities、`no-new-privileges`、无网络、4 GiB 内存、2 CPU 和 256 PIDs 的限制运行 mock demo。
 4. 从命名卷复制 run 记录。
-5. 执行严格 `--require-done` 验收。
+5. 执行严格日志验收；远程 x86_64 上接受并列、沉默或预算耗尽等明确策略结果。
 6. 生成 manifest 和 tar.gz 证据包。
 7. 将全部证据上传为 workflow artifact。
 

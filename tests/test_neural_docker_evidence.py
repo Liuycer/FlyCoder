@@ -46,6 +46,7 @@ class NeuralDockerEvidenceTests(unittest.TestCase):
         ]
         if archive is not None:
             argv.extend(['--archive', str(archive)])
+        argv.extend(['--accepted-outcomes', getattr(self, 'accepted_outcomes', 'task_solved')])
         result = packager.main(argv)
         if result != 0:
             return result
@@ -68,6 +69,18 @@ class NeuralDockerEvidenceTests(unittest.TestCase):
             'outcome': 'tied_scores',
         }))
         self.assertEqual(self.package(), 2)
+
+    def test_policy_exit_can_be_recorded_without_task_success_claim(self):
+        self.report.write_text(json.dumps({
+            'backend_verified': True,
+            'task_solved': False,
+            'outcome': 'tied_scores',
+        }))
+        self.accepted_outcomes = 'tied_scores,budget_exhausted'
+        manifest = self.package()
+        self.assertEqual(manifest['accepted_outcomes'], ['budget_exhausted', 'tied_scores'])
+        self.assertTrue(manifest['check']['backend_verified'])
+        self.assertFalse(manifest['check']['task_solved'])
 
     def test_archive_is_reproducible_for_identical_inputs(self):
         first = self.root / 'first.tar.gz'
