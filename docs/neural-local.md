@@ -94,6 +94,8 @@ bash scripts/setup_neural.sh
 
 FlyWire 未接入。基础 `Dockerfile` 不含神经环境。`Dockerfile.neural` 和 `docker-compose.neural.yml` 已完成静态配置，并于 2026-09-15 在本机 Docker 29.8.0/Linux arm64 上完整构建和实测。容器内真实 MaleCNS + mock demo 完成 8 个动作并进入 DONE；严格 `--require-done` 验收返回 `backend_verified=true, task_solved=true, outcome=task_solved`。镜像未发布到服务器。
 
+Docker 证据的哈希化打包、复查命令和手动远程工作流见 [神经 Docker 验证](neural-docker-verification.md)。
+
 Git sandbox 仍是可信仓库的文件副本隔离，不适用于执行陌生人上传的恶意代码。
 
 数据、模型和许可署名见项目 `THIRD_PARTY.md` 与上游原始说明。

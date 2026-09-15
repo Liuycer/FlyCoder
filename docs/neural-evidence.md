@@ -116,4 +116,4 @@ Linux 默认内核与诊断内核记录的二进制哈希同为 `b46d3c318f7a…
 {"backend_verified": true, "task_solved": true, "outcome": "task_solved", "completed_actions": 8, "selection_attempts": 8}
 ```
 
-最后一次神经 trace 保留真实后端身份：图 SHA-256 为 `346b8af85a11…`，映射 SHA-256 为 `f503ae431d3c…`，内核源码 SHA-256 为 `2dc0939d5efb…`。本地保存的验收与配置证据包括 `research/docker-neural-check.json`、`docker-neural-check.log`、`docker-neural-run-provenance.json`、`docker-neural-container.json`、`docker-neural-image.json`、`docker-neural-config.yaml`、`docker-neural-demo.log` 和 `research/docker-neural-runs/…`。
+最后一次神经 trace 保留真实后端身份：图 SHA-256 为 `346b8af85a11…`，映射 SHA-256 为 `f503ae431d3c…`，内核源码 SHA-256 为 `2dc0939d5efb…`。本地保存的验收与配置证据包括 `research/docker-neural-check.json`、`docker-neural-check.log`、`docker-neural-run-provenance.json`、`docker-neural-container.json`、`docker-neural-image.json`、`docker-neural-config.yaml`、`docker-neural-demo.log`、`docker-neural-build-current.log`、`docker-neural-evidence-manifest.json`、`docker-neural-evidence.tar.gz` 和 `research/docker-neural-runs/…`。这些文件可通过 `scripts/package_neural_docker_evidence.py` 生成哈希 manifest 和可复查压缩包；流程见 [神经 Docker 验证](neural-docker-verification.md)。

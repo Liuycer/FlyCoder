@@ -1,0 +1,127 @@
+name: FlyCoder neural Docker check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  neural-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      IMAGE: flycoder-neural-verify:${{ github.sha }}
+      CONTAINER_NAME: flycoder-neural-verify-${{ github.run_id }}-${{ github.run_attempt }}
+      RUN_VOLUME: flycoder-neural-verify-${{ github.run_id }}-${{ github.run_attempt }}
+      EVIDENCE_DIR: research/neural-docker-evidence
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Prepare evidence directory
+        run: mkdir -p "$EVIDENCE_DIR/container"
+
+      - name: Build neural Docker image
+        run: |
+          set -euo pipefail
+          docker build --tag "$IMAGE" --file Dockerfile.neural . 2>&1 | tee "$EVIDENCE_DIR/container/build.log"
+
+      - name: Capture intended compose and image configuration
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR/container"
+          docker compose -f docker-compose.neural.yml config --no-interpolate \
+            > "$EVIDENCE_DIR/container/compose-config.yaml"
+          docker image inspect "$IMAGE" > "$EVIDENCE_DIR/container/image.json"
+
+      - name: Run secured mock neural demo
+        run: |
+          set -euo pipefail
+          docker volume create "$RUN_VOLUME"
+          set +e
+          docker run \
+            --name "$CONTAINER_NAME" \
+            --entrypoint ./run-neural.sh \
+            --user 10001:10001 \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --memory 4g \
+            --memory-swap 4g \
+            --cpus 2 \
+            --pids-limit 256 \
+            --init \
+            --network none \
+            --tmpfs /tmp:size=256m,mode=1777 \
+            --env NUMBA_CACHE_DIR=/tmp/numba-cache \
+            --volume "$RUN_VOLUME:/data/runs:rw" \
+            "$IMAGE" \
+            --llm mock --seed 0 --runs /data/runs/docker-verification \
+            2>&1 | tee "$EVIDENCE_DIR/container/demo.log"
+          run_exit_code=${PIPESTATUS[0]}
+          set -e
+          printf 'RUN_EXIT_CODE=%s\n' "$run_exit_code" >> "$GITHUB_ENV"
+
+      - name: Collect container and volume evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          if docker container inspect "$CONTAINER_NAME" > /dev/null 2>&1; then
+            docker container inspect "$CONTAINER_NAME" > "$EVIDENCE_DIR/container/container.json"
+            docker logs "$CONTAINER_NAME" > "$EVIDENCE_DIR/container/demo.log" 2>&1
+            mkdir -p "$EVIDENCE_DIR/run"
+            docker cp "$CONTAINER_NAME":/data/runs/docker-verification/. "$EVIDENCE_DIR/run/" || true
+          else
+            echo 'Container was not created; see build.log.' >&2
+          fi
+          if docker volume inspect "$RUN_VOLUME" > /dev/null 2>&1; then
+            docker volume inspect "$RUN_VOLUME" > "$EVIDENCE_DIR/container/volume.json"
+          fi
+
+      - name: Require container success and strict run evidence
+        run: |
+          set -euo pipefail
+          test "$RUN_EXIT_CODE" -eq 0
+          python3 scripts/check_neural_run.py \
+            --summary "$EVIDENCE_DIR/run/summary.json" \
+            --require-done \
+            --report "$EVIDENCE_DIR/check-report.json"
+
+      - name: Package hash-addressed evidence
+        run: |
+          set -euo pipefail
+          python3 scripts/package_neural_docker_evidence.py \
+            --run-dir "$EVIDENCE_DIR/run" \
+            --check-report "$EVIDENCE_DIR/check-report.json" \
+            --compose-config "$EVIDENCE_DIR/container/compose-config.yaml" \
+            --container-config "$EVIDENCE_DIR/container/container.json" \
+            --image-config "$EVIDENCE_DIR/container/image.json" \
+            --build-log "$EVIDENCE_DIR/container/build.log" \
+            --demo-log "$EVIDENCE_DIR/container/demo.log" \
+            --commit "$GITHUB_SHA" \
+            --output "$EVIDENCE_DIR/manifest.json" \
+            --archive "$EVIDENCE_DIR/neural-docker-evidence.tar.gz" \
+            --require-done
+
+      - name: Upload neural Docker validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flycoder-neural-docker-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove verification container and volume
+        if: always()
+        run: |
+          docker container rm -f "$CONTAINER_NAME" > /dev/null 2>&1 || true
+          docker volume rm -f "$RUN_VOLUME" > /dev/null 2>&1 || true

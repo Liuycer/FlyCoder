@@ -53,12 +53,14 @@ cd /tmp
 
 只有该工作流在目标提交上通过，才能把 Linux 原生神经后端标记为已实测。
 
+神经 Docker 镜像另有手动触发的 `FlyCoder neural Docker check`。它会在 Ubuntu runner 上构建 `Dockerfile.neural`、执行安全容器 demo、运行 `--require-done` 严格验收，并上传包含 manifest 的证据包。若要把 Docker 神经链路标记为远程干净环境实测，必须以目标 commit 上该工作流通过并附带的 artifact 为准；[神经 Docker 验证](neural-docker-verification.md)记录本机证据和复查流程。
+
 ## 5. GitHub 发布
 
 1. 确认基础 CI、package job 和手动神经工作流均通过。
 2. 创建并推送与 `pyproject.toml` 一致的 tag，例如 `v0.2.0`。
 3. 创建 GitHub Release，上传 `dist/` 中的 wheel 和 sdist。
-4. 在 release notes 中明确：这是固定权重原型，不包含神经学习；FlyWire 未接入；神经 Docker 链路以手动工作流结果为准。
+4. 在 release notes 中明确：这是固定权重原型，不包含神经学习；FlyWire 未接入；神经原生和 Docker 链路分别以对应手动工作流/证据包结果为准。
 
 校验文件：
 

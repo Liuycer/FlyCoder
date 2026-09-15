@@ -52,3 +52,5 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - 容器内真实 MaleCNS + mock demo 完成 8 个动作：READ → EDIT → TEST → READ → RETRY → EDIT → TEST → DONE；第二次 TEST 执行 5 项测试并通过。
 - 严格日志验收返回 `backend_verified=true, task_solved=true, outcome=task_solved, completed_actions=8`。
 - 本地证据保存在 `research/docker-neural-check.json`、`docker-neural-check.log`、`docker-neural-run-provenance.json`、`docker-neural-container.json`、`docker-neural-image.json`、`docker-neural-config.yaml`、`docker-neural-demo.log` 和 `research/docker-neural-runs/`；这些目录按项目规则不进入源码提交。
+- 已新增 `scripts/package_neural_docker_evidence.py` 和 `FlyCoder neural Docker check` 手动工作流，用于生成哈希化证据包并在干净 Ubuntu runner 上复现构建、运行与严格验收；远程 Docker 工作流结果单独以 workflow artifact 为准。
+- 本机证据已打包为 `research/docker-neural-evidence-manifest.json` 与 `research/docker-neural-evidence.tar.gz`；从压缩包内复跑 `--require-done` 仍返回 `task_solved=true`。
