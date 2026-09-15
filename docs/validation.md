@@ -43,3 +43,12 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - Linux 真实运行在第 5 步因合法 READ/TEST 并列停止，严格报告为 `backend_verified=true, task_solved=false, outcome=tied_scores`。
 - 本机已检测到 Docker 29.8.0，此前神经镜像构建曾进入导出阶段后因 Docker daemon 连接 EOF 失败；容器化神经镜像仍没有完整构建并运行实测。
 - 已从当前源码重建 v0.2.0 wheel/sdist；wheel 在源码外的独立虚拟环境安装并离线运行 `demo --mock-first-pass`，返回 `done`。
+
+## 2026-09-15 神经 Docker 实测
+
+- 在 Docker 29.8.0 的 linux/arm64 环境中完整构建 `flycoder-flycoder-neural:latest`；镜像 ID 前缀 `32b09ae16fcb`，大小约 5.41 GB。
+- 为容器导入上游引擎时添加 `NUMBA_CACHE_DIR=/tmp/numba-cache`，配合只读根文件系统和 `/tmp` tmpfs。
+- 容器以非 root 用户 `flycoder` 运行，drop 全部 capabilities、禁用 privilege escalation、根文件系统只读，限制 4 GiB 内存、2 CPU、256 PIDs，退出码为 0 且未被 OOM 杀死。
+- 容器内真实 MaleCNS + mock demo 完成 8 个动作：READ → EDIT → TEST → READ → RETRY → EDIT → TEST → DONE；第二次 TEST 执行 5 项测试并通过。
+- 严格日志验收返回 `backend_verified=true, task_solved=true, outcome=task_solved, completed_actions=8`。
+- 本地证据保存在 `research/docker-neural-check.json`、`docker-neural-check.log`、`docker-neural-run-provenance.json`、`docker-neural-container.json`、`docker-neural-image.json`、`docker-neural-config.yaml`、`docker-neural-demo.log` 和 `research/docker-neural-runs/`；这些目录按项目规则不进入源码提交。

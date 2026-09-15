@@ -6,6 +6,8 @@ services:
     init: true
     command: ["--llm", "mock"]
     environment:
+      # Numba checks cache writability when importing the upstream engine.
+      NUMBA_CACHE_DIR: /tmp/numba-cache
       LLM_ADAPTER: ${LLM_ADAPTER:-chat-completions}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}

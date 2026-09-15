@@ -100,7 +100,20 @@ Linux 默认内核与诊断内核记录的二进制哈希同为 `b46d3c318f7a…
 - 覆盖缺少 TEST/DONE、伪通过、全跳过、过期指纹、错误 summary、并列现场、沉默、过期 trace、伪装错误原因、预算耗尽、非有限值和不合法 JSON 结构等反例。
 - 新版本真实 MaleCNS + mock coding demo 完成 8 个动作，严格 `--require-done` 验收通过。
 - `fa0ef3a` 的 GitHub Actions checks 与神经工作流均通过；神经 run 34864923823 已上传受控重放、no-contract 重放、内核元数据和严格验收报告。
-- 没有发起 BAI/API 调用，没有构建神经 Docker 镜像。
-- 修改已推送到 GitHub 并在远程 CI 中复验；神经 Docker 镜像仍待完整构建和运行实测。
+- 没有发起 BAI/API 调用。
+- 修改已推送到 GitHub 并在远程 CI 中复验。
+- 2026-09-15 本机 Docker 29.8.0/Linux arm64 构建并运行神经镜像：容器退出码为 0，真实 MaleCNS + mock demo 完成 8 个动作并进入 DONE；严格验收通过。
 
 本地证据：`research/evidence-tests.log`、`evidence-base-tests.log`、`evidence-check.json`、`evidence-runs/`、`platform-comparison.json`。它们不进入普通源码提交。
+
+## 神经 Docker 实测
+
+本机使用 Docker 29.8.0（server OS/arch：linux/arm64）构建 `flycoder-flycoder-neural:latest`，镜像 ID 为 `32b09ae16fcb…`，大小约 5.41 GB。容器以 `flycoder` 用户运行，根文件系统只读，`/tmp` 使用 256 MiB tmpfs，限制为 4 GiB 内存、2 CPU、256 PIDs，drop 全部 Linux capabilities，并启用 `no-new-privileges`。运行命令为 `--llm mock --seed 0 --runs /data/runs/docker-verification`。
+
+容器退出码为 0，未被 OOM 杀死。动作序列为 READ → EDIT → TEST → READ → RETRY → EDIT → TEST → DONE；第二次 TEST 执行 5 项测试并通过，随后 DONE 完成。严格验收输出：
+
+```json
+{"backend_verified": true, "task_solved": true, "outcome": "task_solved", "completed_actions": 8, "selection_attempts": 8}
+```
+
+最后一次神经 trace 保留真实后端身份：图 SHA-256 为 `346b8af85a11…`，映射 SHA-256 为 `f503ae431d3c…`，内核源码 SHA-256 为 `2dc0939d5efb…`。本地保存的验收与配置证据包括 `research/docker-neural-check.json`、`docker-neural-check.log`、`docker-neural-run-provenance.json`、`docker-neural-container.json`、`docker-neural-image.json`、`docker-neural-config.yaml`、`docker-neural-demo.log` 和 `research/docker-neural-runs/…`。
