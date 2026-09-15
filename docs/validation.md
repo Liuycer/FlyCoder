@@ -92,3 +92,13 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - 外部题库 `llm-bug-bench` 两道题在本机 arm64 容器内以真实 BAI + MaleCNS 运行成功：001 四步 `task_solved`（单行比较符号修复），002 八步 `task_solved`（首次 EDIT 破坏导入后由 RETRY 恢复）。两次均通过 `check_neural_run.py` 严格复验，题库原件未改动，参考实现 `fixed.py` 排除在任务副本之外。
 - 002 的运行 diff 触发两条审查标记（无关的 `average()`、`parse_json` 参数改名），按流程保留人工审查、未自动合并。
 - 项目测试 82 项通过（基础环境 2 项可选 NumPy 契约跳过）。
+
+
+## 2026-09-15 批次脚本、模型切换与 003–008 批次
+
+- 新增 `scripts/run_task_bench.py`：一条命令串起任务副本准备（unittest 薄包装、排除 `fixed.py`、逐文件 SHA-256）、baseline 预检、批次内单次镜像构建、逐 (题目, seed) 容器运行、命名卷证据导出、`check_neural_run.py` 严格复验、`report_run.py` 审查报告与批次汇总。题库目录始终只读，生成的修复不自动合并。
+- 首次真实批次暴露两个问题并已修复：导出证据时 `--volume` 用了相对路径（Docker 会当成命名卷而失败），现强制绝对路径；运行记录未写明模型，现 `summary.json` 记录 `llm_model`，审查报告与批次汇总一并展示，缺失时以 `llm_model_source` 标明取值来源。
+- 真实模型由 `qwen3.8-flash` 换成 `deepseek-v4.1-flash`。旧模型下 003 的 3 次调用消耗 8 次 HTTP 尝试（5 次超时），容器创建后约 12 分钟以 `LLM connection failed or timed out` 结束；新模型下同一批六题约 1 分钟完成，每题 10–11 秒。超时尝试证据保留在 `research/bug-bench-runs/basic-003-008-attempt1-aborted/`。
+- `basic-003-008` 批次六题全部 `backend_verified=true, outcome=task_solved`，各 4 个动作、2 次 LLM 调用，共 12 次 HTTP 请求（无重试）、input 16,601 / output 6,607 tokens。基线均为 FAIL，修复分别为边界条件、初始值、可变默认参数、异常处理、索引计算与分隔符解析。
+- 005 的 diff 触发一条审查标记（`updates={}` → `updates=None`），即题目要求的标准修法，但仍按流程留待人工确认后才可合并。
+- 项目测试 95 项通过（含新增的批次脚本、导出路径、模型溯源用例；基础环境 2 项可选 NumPy 契约跳过）。

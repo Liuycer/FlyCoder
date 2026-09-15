@@ -220,8 +220,12 @@ def format_llm_usage(summary):
     total_in = sum(r.get('input_tokens', 0) for r in usage if isinstance(r, dict))
     total_out = sum(r.get('output_tokens', 0) for r in usage if isinstance(r, dict))
     retries = attempts - calls if attempts >= calls else 0
-    lines = [f'Calls: {calls} | HTTP attempts: {attempts} (retries: {retries})',
-             f'Tokens: input {total_in:,} / output {total_out:,}']
+    model = summary.get('llm_model')
+    lines = []
+    if isinstance(model, str) and model.strip():
+        lines.append(f'Model: `{model}`')
+    lines.extend([f'Calls: {calls} | HTTP attempts: {attempts} (retries: {retries})',
+                  f'Tokens: input {total_in:,} / output {total_out:,}'])
     for i, r in enumerate(usage, 1):
         if not isinstance(r, dict):
             continue

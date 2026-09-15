@@ -138,6 +138,19 @@ class FlowTests(unittest.TestCase):
                           {"output_tokens": 50},
                           {}])
 
+    def test_summary_records_the_model_that_produced_the_run(self):
+        class NamedCoder(MockCodingAdapter):
+            def __init__(self):
+                super().__init__(False)
+                self.model = "deepseek-v4.1-flash"
+
+        result = self.run_flow(coder=NamedCoder())
+        self.assertEqual(result["llm_model"], "deepseek-v4.1-flash")
+
+    def test_summary_omits_a_model_the_coder_does_not_report(self):
+        result = self.run_flow(coder=MockCodingAdapter(False))
+        self.assertIsNone(result["llm_model"])
+
 
 class RunnerTests(unittest.TestCase):
     def run_repo(self, code, timeout=3):

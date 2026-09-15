@@ -87,6 +87,41 @@ LLM_TIMEOUT=120 FLYCODER_TARGET_REPO=./research/llm-bug-bench-002/input \
 
 002 第一次 EDIT 删掉了 `parse_json` 本身，TEST 报 `ImportError`，控制器选择 RETRY 后第二次 EDIT 才通过：这正是“测试证据驱动重试”而非法则回退或假装成功的例子。002 的一次前置尝试在默认 `LLM_TIMEOUT` 下以连接超时告终，记录保留在 `research/llm-bug-bench-002/c2e8b410ebf443748a5ba59f2fc9f786/`，与成功运行分开保存。
 
+### 一条命令跑一批题目
+
+上面那串手敲命令已固化成 `scripts/run_task_bench.py`：准备不可变任务副本（含 unittest 薄包装、`fixed.py` 排除、逐文件 SHA-256）→ 可选 baseline 预检 → 整个批次只 `docker compose build` 一次 → 逐 (题目, seed) 在容器内运行并把 stdout/stderr 落盘 → 从命名卷导出证据 → `check_neural_run.py` 严格复验 → `report_run.py` 渲染审查报告 → 写批次汇总。
+
+```bash
+python3 scripts/run_task_bench.py \
+  --source ~/Documents/ChatGPT/llm-bug-bench/tasks/basic \
+  --ids 003_fibonacci 004_max_value 005_dict_merge \
+        006_file_reader 007_palindrome 008_url_parser \
+  --seeds 0 --output research/bug-bench-runs --batch basic-003-008
+```
+
+批次产物：`batch.json`（参数、源文件清单、逐题结果、实际模型、HTTP 请求数、样本限制）、`summary.md`（通过 / 策略停止 / 需关注三档计数与逐题表格）、`logs/<task>-seed<n>.log`、`runs/<task>-seed<n>/<run-id>/`（原始证据 + `check.json` + `review.md`）。题库目录始终只读，只有 `inputs/` 下的副本会挂进容器；生成的修复只作证据，从不自动合并。
+
+其它开关：`--dry-run` 只打印计划不调用 LLM，`--no-build` 复用已有镜像，`--max-http-requests` 在请求预算耗尽后停止启动新运行，`--limit` 截断题目×seed 组合，`--require-done` 让存在未解题的批次返回非零退出码。统计仍是单次运行的小样本：一条记录只说明“该题该 seed 在该模型与提示下的一次结果”，不代表该模型的总体能力。
+
+本机 arm64 结果，六题全部 `backend_verified=true, outcome=task_solved`，每条 4 个动作、2 次 LLM 调用（共 12 次 HTTP 请求，无重试）：
+
+| 题目 | baseline | 修复 | token 入/出 |
+| --- | --- | --- | --- |
+| 003 斐波那契边界 | 5 项 FAIL | `n == 1` → `n <= 1` | 2,397 / 1,297 |
+| 004 负数取最大值 | 5 项 FAIL | `max_val = 0` → `numbers[0]` | 2,350 / 919 |
+| 005 可变默认参数 | 5 项 FAIL | `updates={}` → `None` 哨兵 + 复制返回 | 2,817 / 1,203 |
+| 006 文件读取异常 | 3 项 FAIL | `with open(...)` + `FileNotFoundError` 返回空列表 | 2,510 / 689 |
+| 007 回文边界与索引 | 7 项 FAIL | `chars[n - i]` → `chars[n - 1 - i]`，空串返回 `True` | 3,626 / 1,190 |
+| 008 无值查询参数 | 5 项 FAIL | `split("=", 1)`，无 `=` 时值为空串 | 2,901 / 1,309 |
+
+005 触发一条审查标记：`merge_dicts(base, updates={})` → `merge_dicts(base, updates=None)`。这正是可变默认参数的标准修法（题目描述亦然），但签名变更仍按流程留给人工确认，报告不因测试全绿而自动放行。
+
+### 模型选择
+
+第一次 003 尝试用 `qwen3.8-flash`：3 次成功调用背后是 8 次 HTTP 尝试（5 次超时），容器创建后约 12 分钟仍以 `LLM connection failed or timed out` 结束。换用 `deepseek-v4.1-flash` 后，同一批六题从构建到导出共约 1 分钟，每题 10–11 秒、2 次调用 2 次 HTTP 尝试。超时尝试的证据单独保留在 `research/bug-bench-runs/basic-003-008-attempt1-aborted/`，未被覆盖或重写。
+
+运行记录现在写明实际使用的模型：`summary.json` 记录 `llm_model`（适配器自报），审查报告与 `batch.json` 一并展示。`basic-003-008` 这批运行早于该字段，`batch.json` 因此用 `llm_model_source` 标明模型取自批次时的宿主 `LLM_MODEL`，而非逐次记录。
+
 ## 审查报告
 
 `scripts/report_run.py` 把一份运行目录渲染成人可读的 Markdown，不必翻 `summary.json`：结论（✅ `task_solved` / ⚠️ 合法策略停止 / ❌ 证据不成立）、动作链、每个文件的 `−x / +y` 与完整 diff、Review flags、LLM 请求与 token、神经后端指纹、baseline 失败明细。

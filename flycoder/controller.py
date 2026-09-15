@@ -57,6 +57,9 @@ class Controller:
         """Extract metered LLM calls/tokens; Mock adapter has neither field."""
         records = getattr(self.coder, 'usage_records', None)
         attempts = getattr(self.coder, 'http_attempts', 0)
+        model = getattr(self.coder, 'model', None)
+        if not isinstance(model, str) or not model.strip():
+            model = None
         if not isinstance(records, list):
             records = []
         if not isinstance(attempts, int) or attempts < 0:
@@ -74,6 +77,7 @@ class Controller:
         return {
             'llm_calls': len(usage),
             'llm_http_attempts': attempts,
+            'llm_model': model,
             'llm_usage': usage,
         }
 

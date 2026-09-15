@@ -130,6 +130,7 @@ class ReportRunTests(unittest.TestCase):
     def test_llm_usage_displayed(self):
         extra = {
             'coder': 'ChatCompletionsCodingAdapter',
+            'llm_model': 'deepseek-v4.1-flash',
             'llm_calls': 2, 'llm_http_attempts': 3,
             'llm_usage': [
                 {'input_tokens': 1200, 'output_tokens': 300},
@@ -138,9 +139,21 @@ class ReportRunTests(unittest.TestCase):
         }
         run_dir, _ = make_run(self.root, summary_extra=extra)
         report = generate_report(run_dir)
+        self.assertIn('Model: `deepseek-v4.1-flash`', report)
         self.assertIn('Calls: 2 | HTTP attempts: 3 (retries: 1)', report)
         self.assertIn('input 3,600 / output 1,000', report)
         self.assertIn('request 1: in 1,200, out 300', report)
+
+    def test_llm_usage_without_a_recorded_model(self):
+        extra = {
+            'coder': 'ChatCompletionsCodingAdapter',
+            'llm_calls': 1, 'llm_http_attempts': 1,
+            'llm_usage': [{'input_tokens': 10, 'output_tokens': 20}],
+        }
+        run_dir, _ = make_run(self.root, summary_extra=extra)
+        report = generate_report(run_dir)
+        self.assertNotIn('Model:', report)
+        self.assertIn('Calls: 1 | HTTP attempts: 1', report)
 
     def test_neural_backend_displayed(self):
         trace = {'windows': [{
