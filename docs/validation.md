@@ -54,3 +54,13 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - 本地证据保存在 `research/docker-neural-check.json`、`docker-neural-check.log`、`docker-neural-run-provenance.json`、`docker-neural-container.json`、`docker-neural-image.json`、`docker-neural-config.yaml`、`docker-neural-demo.log` 和 `research/docker-neural-runs/`；这些目录按项目规则不进入源码提交。
 - 已新增 `scripts/package_neural_docker_evidence.py` 和 `FlyCoder neural Docker check` 手动工作流，用于生成哈希化证据包并在干净 Ubuntu runner 上复现构建、运行与严格验收；远程 Docker 工作流结果单独以 workflow artifact 为准。
 - 本机证据已打包为 `research/docker-neural-evidence-manifest.json` 与 `research/docker-neural-evidence.tar.gz`；从压缩包内复跑 `--require-done` 仍返回 `task_solved=true`。
+
+## 2026-09-15 远程 x86_64 神经 Docker 验证
+
+- 提交 `0a0dda7b393e3067d19f632e16b6500b65208c97` 的 [Docker 工作流 34937809743](https://github.com/Liuycer/FlyCoder/actions/runs/34937809743) 通过。证据路径为 `run/<run-id>/summary.json`，工作流以 `--runs` 查找。
+- 远程镜像架构为 amd64；容器用户 `10001:10001`、根文件系统只读，退出码 1，`OOMKilled=false`。
+- 真实后端完成 4 个动作，第 5 次选择因分数并列停止；独立 checker 复跑返回 `backend_verified=true, task_solved=false, outcome=tied_scores`。这是后端验证通过，不是任务成功。
+- 已重新下载证据包，核验 manifest 列出的全部 38 个文件大小和 SHA-256，并在独立目录复跑 checker；复核文件保存在 `research/review-0a0dda7/`。
+- 本机 ARM64 的 8 步 DONE 与远程 x86_64 的并列停止分别记录，不能互相替代，也不代表已部署到外部服务器。
+- 后续本地修复强制执行打包器的 `--require-done`，将 workflow 沉默结果名统一为 `silent_readouts`，并分开说明两种证据目录布局。以上远程运行发生在这些后续修复之前，不作为修复后 CI 的证明。
+- 后续修复的本地验证：神经环境 61 项测试全部通过；使用真实 ARM64 扁平证据包和 x86_64 子目录证据包分别复跑 checker 与打包器。ARM64 严格模式通过，x86_64 策略模式通过，而添加 `--require-done` 后按预期拒绝打包。记录位于 `research/fix-evidence-review/`。

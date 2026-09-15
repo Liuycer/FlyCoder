@@ -20,7 +20,7 @@
 
 - `task_solved`
 - `tied_scores`
-- `readout_silence`
+- `silent_readouts`
 - `budget_exhausted`
 
 后端错误、缺 trace、非法动作、伪通过、日志结构不一致或容器被 OOM 杀死仍会让工作流失败。manifest 会记录 `accepted_outcomes`，因此通过工件可以确认这次结果是否被当作策略结果而不是任务解决。
@@ -53,20 +53,31 @@ python3 scripts/package_neural_docker_evidence.py \
   --run-dir research/docker-neural-runs/<run-id> \
   --check-report research/docker-neural-check.json \
   --output research/docker-neural-evidence-manifest.json \
-  --accepted-outcomes task_solved,tied_scores,readout_silence,budget_exhausted
+  --accepted-outcomes task_solved,tied_scores,silent_readouts,budget_exhausted
 ```
 
-复查压缩包时，先展开，再重跑严格验收器：
+复查前先将可信证据包展开到项目内的新目录，再按包内布局选择参数。
+
+上述本机打包命令传入单次运行目录，包内路径为 `run/summary.json`。使用明确的 `--summary` 并要求任务成功：
 
 ```bash
-rm -rf /tmp/neural-docker-evidence && mkdir -p /tmp/neural-docker-evidence
-tar -xzf research/docker-neural-evidence.tar.gz -C /tmp/neural-docker-evidence
+mkdir -p research/evidence-local-review
+tar -xzf research/docker-neural-evidence.tar.gz -C research/evidence-local-review
 python3 scripts/check_neural_run.py \
-  --runs /tmp/neural-docker-evidence/neural-docker-evidence/run \
+  --summary research/evidence-local-review/neural-docker-evidence/run/summary.json \
   --require-done
 ```
 
-工作流复制容器内的 `docker-verification/` 后，证据放在 `run/<run-id>/summary.json`。验收器使用 `--runs` 自动选择这个唯一 run，因此不要假设 summary 固定在 `run/` 根目录。
+远程工作流传入运行目录的父目录，包内路径为 `run/<run-id>/summary.json`。将下载的远程 tar.gz 解压到 `research/evidence-remote-review` 后，使用 `--runs`：
+
+```bash
+python3 scripts/check_neural_run.py \
+  --runs research/evidence-remote-review/neural-docker-evidence/run
+```
+
+远程命令允许有完整证据的并列、沉默或预算耗尽，并明确报告 `task_solved=false`。只有要求任务必须成功时才加 `--require-done`；本次远程 `tied_scores` 结果在该模式下应返回非零退出码。不要将本机的扁平目录与远程的 `<run-id>` 子目录混用，也不要在同一展开目录中混合不同证据包。
+
+打包器的 `--require-done` 同样强制要求报告中 `task_solved=true` 且 `outcome=task_solved`，即使 `--accepted-outcomes` 包含策略停止也不会放行。打包器读取已有报告；独立复查仍需重新运行 checker。
 
 ## 本机已有实测
 

@@ -108,7 +108,7 @@ jobs:
             --commit "$GITHUB_SHA" \
             --output "$EVIDENCE_DIR/manifest.json" \
             --archive "$EVIDENCE_DIR/neural-docker-evidence.tar.gz" \
-            --accepted-outcomes task_solved,tied_scores,readout_silence,budget_exhausted
+            --accepted-outcomes task_solved,tied_scores,silent_readouts,budget_exhausted
 
       - name: Upload neural Docker validation evidence
         if: always()

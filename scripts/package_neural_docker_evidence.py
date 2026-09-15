@@ -56,8 +56,11 @@ def github_metadata():
 
 def write_manifest(args, entries):
     check = json.loads(Path(args.check_report).read_text())
-    if not check.get('backend_verified'):
+    if check.get('backend_verified') is not True:
         raise ValueError('The check report does not verify the neural backend')
+    if args.require_done and (check.get('task_solved') is not True or
+                              check.get('outcome') != 'task_solved'):
+        raise ValueError('--require-done requires a successfully solved task')
     accepted_outcomes = {item.strip() for item in args.accepted_outcomes.split(',') if item.strip()}
     if not accepted_outcomes:
         raise ValueError('At least one accepted outcome is required')
