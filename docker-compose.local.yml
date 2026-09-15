@@ -1,0 +1,15 @@
+# Use together with docker-compose.neural.yml. No inbound service/port is needed.
+services:
+  flycoder-neural:
+    image: flycoder-local:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      args:
+        NEURAL_BASE_IMAGE: ${NEURAL_BASE_IMAGE:-flycoder-neural-runtime:32b09ae16fcb}
+    command: ["--llm", "${LLM_ADAPTER:-chat-completions}", "--tie-extra-windows", "${TIE_EXTRA_WINDOWS:-0}"]
+    volumes:
+      - type: bind
+        source: ${FLYCODER_TARGET_REPO:-./flycoder/examples/buggy_repo}
+        target: /workspace
+        read_only: true

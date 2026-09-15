@@ -220,3 +220,9 @@ docker compose -f docker-compose.neural.yml run --rm flycoder-neural --llm mock
 ## 策略评测与并列累计实验
 
 已加入四类 bug 的固定候选评测，以及默认关闭的并列累计策略。用 `.venv-neural/bin/python scripts/benchmark_policies.py` 运行离线对照；用 `./run-neural.sh --llm mock --tie-extra-windows 2` 体验实验策略。它最多追加两段模拟，仍并列则停止。参见 [评测方法、预算与结果](docs/policy-benchmark.md)。
+
+## 真实 BAI 评测与本地运行
+
+现在支持实际 HTTP 请求预算、token 用量记录，以及三类多文件扩展任务；见 [真实评测说明](docs/live-evaluation.md)。
+
+本机已有神经运行镜像时，用 `docker compose -f docker-compose.neural.yml -f docker-compose.local.yml build` 更新代码，随后 `./run-local.sh` 使用 `.env` 中的 BAI 配置运行。也可先执行 `./run-local.sh --llm mock` 离线验证。详细步骤、实验策略开关和仓库挂载方式见 [本地部署说明](docs/local-deployment.md)。

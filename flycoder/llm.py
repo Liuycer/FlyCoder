@@ -15,8 +15,10 @@ def _retry_delay(retry_backoff: float, retry_index: int) -> float:
 
 
 def _request_bytes(open_func, request, timeout: float, max_retries: int,
-                   retry_backoff: float) -> bytes:
+                   retry_backoff: float, on_attempt=None) -> bytes:
     for retry_index in range(max_retries + 1):
+        if on_attempt is not None:
+            on_attempt()
         try:
             with open_func(request, timeout=timeout) as response:
                 return response.read(2_000_001)
@@ -34,7 +36,7 @@ def _request_bytes(open_func, request, timeout: float, max_retries: int,
                 }.get(code, "provider server error" if retryable else "provider request failed")
                 # Never include provider response bodies: they may echo credentials or code.
                 raise RuntimeError("LLM HTTP error " + str(code) + ": " + hint) from None
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
             if retry_index >= max_retries:
                 raise RuntimeError("LLM connection failed or timed out; check endpoint and LLM_TIMEOUT") from None
         delay = _retry_delay(retry_backoff, retry_index)
@@ -86,6 +88,26 @@ class OpenAICodingAdapter(CodingAdapter):
             raise ValueError("LLM_RETRY_BACKOFF must be nonnegative")
         self.model, self.api_key, self.timeout = model, api_key, timeout
         self.max_retries, self.retry_backoff = max_retries, retry_backoff
+        self.http_attempts = 0
+        self.usage_records = []
+        self.request_budget = None
+
+    def track_attempt(self):
+        if self.request_budget is not None:
+            self.request_budget()
+        self.http_attempts += 1
+
+    def track_usage(self, result):
+        usage = result.get('usage') if isinstance(result, dict) else None
+        record = {}
+        if isinstance(usage, dict):
+            for target, names in [('input_tokens', ('input_tokens', 'prompt_tokens')),
+                                  ('output_tokens', ('output_tokens', 'completion_tokens'))]:
+                value = next((usage[n] for n in names if n in usage), None)
+                if type(value) is int and value >= 0:
+                    record[target] = value
+        # A missing count stays missing, never becomes a claimed zero.
+        self.usage_records.append(record)
 
     @classmethod
     def from_env(cls):
@@ -113,13 +135,14 @@ class OpenAICodingAdapter(CodingAdapter):
         req = urllib.request.Request("https://api.openai.com/v1/responses", data=data,
             headers={"Authorization": "Bearer " + self.api_key, "Content-Type": "application/json"})
         raw = _request_bytes(urllib.request.urlopen, req, self.timeout,
-                             self.max_retries, self.retry_backoff)
+                             self.max_retries, self.retry_backoff, self.track_attempt)
         if len(raw) > 2_000_000:
             raise ValueError("LLM response exceeds size limit")
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
             raise ValueError("Provider returned invalid JSON") from None
+        self.track_usage(result)
         if result.get("status") != "completed":
             raise RuntimeError("LLM response incomplete or failed")
         output = "".join(c.get("text", "") for item in result.get("output", [])
@@ -175,6 +198,9 @@ class ChatCompletionsCodingAdapter(OpenAICodingAdapter):
         self.model, self.api_key = model.strip(), api_key.strip()
         self.timeout, self.max_tokens, self.json_mode = timeout, max_tokens, json_mode
         self.max_retries, self.retry_backoff = max_retries, retry_backoff
+        self.http_attempts = 0
+        self.usage_records = []
+        self.request_budget = None
         self.endpoint = base_url.strip().rstrip("/")
         if not self.endpoint.endswith("/chat/completions"):
             self.endpoint += "/chat/completions"
@@ -209,13 +235,14 @@ class ChatCompletionsCodingAdapter(OpenAICodingAdapter):
         req = urllib.request.Request(self.endpoint, data=json.dumps(body).encode(),
             headers={"Authorization": "Bearer " + self.api_key, "Content-Type": "application/json"})
         opener = urllib.request.build_opener(NoRedirect()).open
-        raw = _request_bytes(opener, req, self.timeout, self.max_retries, self.retry_backoff)
+        raw = _request_bytes(opener, req, self.timeout, self.max_retries, self.retry_backoff, self.track_attempt)
         if len(raw) > 2_000_000:
             raise ValueError("LLM response exceeds size limit")
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
             raise ValueError("Provider returned invalid JSON") from None
+        self.track_usage(result)
         choices = result.get("choices") if isinstance(result, dict) else None
         if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
             raise ValueError("Provider response has no valid choices")

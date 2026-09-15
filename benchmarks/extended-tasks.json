@@ -1,0 +1,32 @@
+[
+  {
+    "id": "invoice",
+    "task": "Fix invoice_total(items, tax_rate): items are (price, quantity); apply tax to subtotal and round to cents using decimal ROUND_HALF_UP. Do not modify tests.",
+    "repair_after": 2,
+    "editable": [
+      "money.py",
+      "invoice.py"
+    ],
+    "candidate_layout": "directory"
+  },
+  {
+    "id": "retry_schedule",
+    "task": "Fix delays(base, cap, attempts): return exactly attempts exponential delays base*2**i capped at cap, starting at i=0. Reject negative base, cap, attempts and return [] for zero attempts.",
+    "repair_after": 4,
+    "editable": [
+      "settings.py",
+      "schedule.py"
+    ],
+    "candidate_layout": "directory"
+  },
+  {
+    "id": "records",
+    "task": "Fix parse_rows(lines): each line is name,integer; trim spaces, lowercase names and convert values to int. Skip blank lines, preserve row order, reject malformed rows and empty names with ValueError.",
+    "repair_after": 3,
+    "editable": [
+      "cleaner.py",
+      "parser.py"
+    ],
+    "candidate_layout": "directory"
+  }
+]
