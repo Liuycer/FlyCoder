@@ -79,7 +79,7 @@ jobs:
             docker container inspect "$CONTAINER_NAME" > "$EVIDENCE_DIR/container/container.json"
             docker logs "$CONTAINER_NAME" > "$EVIDENCE_DIR/container/demo.log" 2>&1
             mkdir -p "$EVIDENCE_DIR/run"
-            docker cp "$CONTAINER_NAME":/data/runs/docker-verification/. "$EVIDENCE_DIR/run/" || true
+            docker cp "$CONTAINER_NAME":/data/runs/docker-verification/. "$EVIDENCE_DIR/run/"
           else
             echo 'Container was not created; see build.log.' >&2
           fi
@@ -91,7 +91,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/check_neural_run.py \
-            --summary "$EVIDENCE_DIR/run/summary.json" \
+            --runs "$EVIDENCE_DIR/run" \
             --report "$EVIDENCE_DIR/check-report.json"
 
       - name: Package hash-addressed evidence

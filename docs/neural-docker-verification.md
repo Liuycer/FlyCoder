@@ -62,9 +62,11 @@ python3 scripts/package_neural_docker_evidence.py \
 rm -rf /tmp/neural-docker-evidence && mkdir -p /tmp/neural-docker-evidence
 tar -xzf research/docker-neural-evidence.tar.gz -C /tmp/neural-docker-evidence
 python3 scripts/check_neural_run.py \
-  --summary /tmp/neural-docker-evidence/neural-docker-evidence/run/summary.json \
+  --runs /tmp/neural-docker-evidence/neural-docker-evidence/run \
   --require-done
 ```
+
+工作流复制容器内的 `docker-verification/` 后，证据放在 `run/<run-id>/summary.json`。验收器使用 `--runs` 自动选择这个唯一 run，因此不要假设 summary 固定在 `run/` 根目录。
 
 ## 本机已有实测
 
