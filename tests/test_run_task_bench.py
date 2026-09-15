@@ -1,12 +1,15 @@
 """Tests for the external task-bench orchestrator."""
+import argparse
 import contextlib
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from flycoder.connectome import NeuralConnectome
 from flycoder.controller import Controller
@@ -28,15 +31,59 @@ class TaskBenchTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def make_source(self, name, buggy='return None\n', tests=None):
+    def make_source(self, name, buggy='return None\n', tests=None, metadata=None):
         task = self.root / 'tasks' / name
         task.mkdir(parents=True)
         (task / 'buggy.py').write_text(buggy)
         tests = tests or ('def test_one():\n    assert True\n')
         (task / 'test.py').write_text(tests)
-        (task / 'task.json').write_text('{"id": "x"}\n')
+        (task / 'task.json').write_text(json.dumps(metadata or {'id': 'x'}) + '\n')
         (task / 'fixed.py').write_text('return True\n')
         return task
+
+    def test_task_prompt_comes_from_the_task_json(self):
+        task = self.make_source('005_merge', metadata={
+            'title': '字典合并', 'description': 'updates=None 时崩溃。', 'id': '005'})
+        self.assertEqual(run_task_bench.task_prompt(task),
+                         '字典合并: updates=None 时崩溃。')
+
+    def test_task_prompt_refuses_a_task_without_a_description(self):
+        # No description means the controller would quietly fix its built-in demo
+        # function instead of the repository it was handed.
+        task = self.make_source('006_blank', metadata={'title': '没有描述'})
+        with self.assertRaisesRegex(ValueError, 'would fall back to'):
+            run_task_bench.task_prompt(task)
+        with self.assertRaisesRegex(ValueError, 'could not be read'):
+            run_task_bench.task_prompt(task / 'missing')
+
+    def test_run_one_passes_the_task_text_to_the_container(self):
+        args = argparse.Namespace(llm='chat-completions', tie_extra_windows=2,
+                                  max_steps=12, max_attempts=3, editable=['buggy.py'],
+                                  llm_timeout=120, dry_run=True, run_timeout=60)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            outcome = run_task_bench.run_one('name', 0, self.root / 'input',
+                                             '/data/runs/x', self.root / 'x.log',
+                                             args, '排序: 比较符号写反了')
+        self.assertEqual(outcome, {'status': 'dry_run'})
+        self.assertIn('--task 排序: 比较符号写反了', output.getvalue())
+
+    def test_dry_run_batch_derives_each_prompt_from_its_own_task_json(self):
+        self.make_source('007_palindrome', buggy='def f(s):\n    return False\n',
+                         tests='from buggy import f\n\n'
+                               'def test_f():\n    assert f("aba") is True\n',
+                         metadata={'title': '回文判断', 'description': '总是返回 False。'})
+        output = io.StringIO()
+        argv = ['run_task_bench', '--source', str(self.root / 'tasks'), '--output',
+                str(self.root / 'out'), '--batch', 'dry', '--dry-run', '--no-build']
+        with mock.patch.object(sys, 'argv', argv), contextlib.redirect_stdout(output):
+            code = run_task_bench.main()
+        self.assertEqual(code, 0)
+        printed = output.getvalue()
+        self.assertIn('--task 回文判断: 总是返回 False。', printed)
+        manifest = json.loads((self.root / 'out/dry/inputs/007_palindrome'
+                               '/source-manifest.json').read_text())
+        self.assertEqual(manifest['task_prompt'], '回文判断: 总是返回 False。')
 
     def test_count_and_wrapper(self):
         test_file = self.root / 'test.py'
@@ -87,6 +134,24 @@ class TaskBenchTests(unittest.TestCase):
         self.assertEqual(result['tests_run'], 1)
         with self.assertRaisesRegex(ValueError, 'ran 1 of 2'):
             run_task_bench.baseline_check(destination, 2)
+
+    def test_baseline_check_rejects_a_task_whose_tests_hang(self):
+        # 018_producer_consumer blocks forever on a full queue when its consumer
+        # exits early; an unbounded pre-flight would hang the whole batch.
+        import textwrap
+        task = self.make_source(
+            '004_hang',
+            buggy='def f():\n    return 1\n',
+            tests=textwrap.dedent('''
+                import time
+
+                def test_f():
+                    time.sleep(30)
+            '''))
+        destination = self.root / 'hang-input'
+        run_task_bench.prepare_task(task, destination)
+        with self.assertRaisesRegex(ValueError, 'did not finish within 5s'):
+            run_task_bench.baseline_check(destination, 1, timeout=5)
 
     def test_batch_summary_separates_policy_stops_from_errors(self):
         rows = [
@@ -153,6 +218,22 @@ class TaskBenchTests(unittest.TestCase):
         source = volume.rsplit(':/out', 1)[0]
         self.assertTrue(Path(source).is_absolute(), volume)
         self.assertEqual(source, str(relative.resolve()))
+
+    def test_intake_rejection_is_a_row_not_a_batch_abort(self):
+        # 014_rate_limiter passes untouched: its race is timing-dependent, so the
+        # harness must record that instead of paying for a task with no visible bug.
+        rows = [
+            {'task': '008_ok', 'seed': 0, 'outcome': 'task_solved', 'actions': 4},
+            {'task': '014_rate_limiter', 'seed': None, 'outcome': 'intake_rejected',
+             'reason': 'the untouched copy already passes its tests; '
+                       'there is no observable bug to fix'},
+        ]
+        summary = run_task_bench.batch_summary_markdown('batch', rows)
+        self.assertIn('Runs: 1 | solved: 1 | policy stops: 0 | needs attention: 0 '
+                      '| intake rejected: 1', summary)
+        self.assertIn('never reached the LLM', summary)
+        self.assertIn('- `014_rate_limiter`: the untouched copy already passes', summary)
+        self.assertIn('| 014_rate_limiter | — | intake_rejected |', summary)
 
 
 if __name__ == '__main__':

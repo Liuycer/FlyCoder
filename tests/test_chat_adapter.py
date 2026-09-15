@@ -8,7 +8,61 @@ from pathlib import Path
 from unittest.mock import patch
 
 from flycoder.__main__ import main
-from flycoder.llm import ChatCompletionsCodingAdapter, NoRedirect, OpenAICodingAdapter
+from flycoder.llm import (ChatCompletionsCodingAdapter, NoRedirect,
+                          OpenAICodingAdapter, parse_coding_json)
+
+
+class CodingJsonParseTests(unittest.TestCase):
+    """Models wrap the requested JSON in fences or prose; extraction must stay
+    tolerant about the wrapper but strict about the object itself."""
+
+    def adapter(self, **kwargs):
+        return ChatCompletionsCodingAdapter("test-model", "fake-key",
+                                            "https://provider.example/v1/", **kwargs)
+
+    def response(self, content, finish="stop"):
+        return io.BytesIO(json.dumps({"choices": [{"finish_reason": finish,
+                            "message": {"content": content}}]}).encode())
+
+    def test_plain_object_still_parses(self):
+        body = '{"analysis": "a", "files": {}}'
+        self.assertEqual(parse_coding_json(body),
+                         {'analysis': 'a', 'files': {}})
+
+    def test_fenced_object_parses(self):
+        body = '```json\n{"analysis": "a", "files": {}}\n```'
+        self.assertEqual(parse_coding_json(body),
+                         {'analysis': 'a', 'files': {}})
+
+    def test_prose_before_the_object_parses(self):
+        body = 'Here is the fix:\n{"analysis": "a", "files": {}}\nBest regards.'
+        self.assertEqual(parse_coding_json(body),
+                         {'analysis': 'a', 'files': {}})
+
+    def test_braces_inside_strings_do_not_end_the_object(self):
+        body = '{"analysis": "a{", "files": {"x": "}"}}'
+        self.assertEqual(parse_coding_json(body),
+                         {'analysis': 'a{', 'files': {'x': '}'}})
+
+    def test_unparseable_and_truncated_content_still_raises(self):
+        for body in ['not json', '{"analysis": broken}',
+                     '{"analysis":', '```json\n{"analysis":']:
+            with self.subTest(body=body):
+                with self.assertRaisesRegex(ValueError, 'not valid JSON'):
+                    parse_coding_json(body)
+
+    def test_a_top_level_list_is_parsed_but_never_accepted(self):
+        # json is valid, so extraction keeps it; the adapter's schema check is what
+        # rejects it with "Malformed coding response".
+        self.assertEqual(parse_coding_json('[]'), [])
+        with patch("urllib.request.build_opener") as factory:
+            factory.return_value.open.return_value = self.response('[]')
+            with self.assertRaisesRegex(ValueError, 'Malformed coding response'):
+                self.adapter().read("task", {})
+
+    def test_first_complete_object_wins(self):
+        body = '{"analysis": "a", "files": {}} trailing {"analysis": "b"}'
+        self.assertEqual(parse_coding_json(body)['analysis'], 'a')
 
 
 class ChatAdapterTests(unittest.TestCase):

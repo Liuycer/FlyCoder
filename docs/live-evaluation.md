@@ -101,26 +101,52 @@ python3 scripts/run_task_bench.py \
 
 批次产物：`batch.json`（参数、源文件清单、逐题结果、实际模型、HTTP 请求数、样本限制）、`summary.md`（通过 / 策略停止 / 需关注三档计数与逐题表格）、`logs/<task>-seed<n>.log`、`runs/<task>-seed<n>/<run-id>/`（原始证据 + `check.json` + `review.md`）。题库目录始终只读，只有 `inputs/` 下的副本会挂进容器；生成的修复只作证据，从不自动合并。
 
+每次运行的任务文本取自题目自己的 `task.json`（`title: description`），以 `--task` 传进容器；`batch.json` 的 `task_prompts`、`inputs/<task>/source-manifest.json` 与 `summary.md` 的 “Task prompts” 一节都保留实际下发的原文。`task.json` 缺 `description` 的题目在入场检查阶段被拒绝，不会静默退回控制器内置的示例任务。
+
 其它开关：`--dry-run` 只打印计划不调用 LLM，`--no-build` 复用已有镜像，`--max-http-requests` 在请求预算耗尽后停止启动新运行，`--limit` 截断题目×seed 组合，`--require-done` 让存在未解题的批次返回非零退出码。统计仍是单次运行的小样本：一条记录只说明“该题该 seed 在该模型与提示下的一次结果”，不代表该模型的总体能力。
 
-本机 arm64 结果，六题全部 `backend_verified=true, outcome=task_solved`，每条 4 个动作、2 次 LLM 调用（共 12 次 HTTP 请求，无重试）：
+本机 arm64 结果（`research/bug-bench-runs/basic-003-008-prompted/`），六题全部 `backend_verified=true, outcome=task_solved`，每条 4 个动作、2 次 LLM 调用（共 12 次 HTTP 请求，无重试，input 18,390 / output 4,039 tokens）：
 
 | 题目 | baseline | 修复 | token 入/出 |
 | --- | --- | --- | --- |
-| 003 斐波那契边界 | 5 项 FAIL | `n == 1` → `n <= 1` | 2,397 / 1,297 |
-| 004 负数取最大值 | 5 项 FAIL | `max_val = 0` → `numbers[0]` | 2,350 / 919 |
-| 005 可变默认参数 | 5 项 FAIL | `updates={}` → `None` 哨兵 + 复制返回 | 2,817 / 1,203 |
-| 006 文件读取异常 | 3 项 FAIL | `with open(...)` + `FileNotFoundError` 返回空列表 | 2,510 / 689 |
-| 007 回文边界与索引 | 7 项 FAIL | `chars[n - i]` → `chars[n - 1 - i]`，空串返回 `True` | 3,626 / 1,190 |
-| 008 无值查询参数 | 5 项 FAIL | `split("=", 1)`，无 `=` 时值为空串 | 2,901 / 1,309 |
+| 003 斐波那契边界 | 5 项 FAIL | `n == 1` → `n <= 1` | 2,538 / 549 |
+| 004 负数取最大值 | 5 项 FAIL | `max_val = 0` → `numbers[0]` | 2,650 / 540 |
+| 005 可变默认参数 | 5 项 FAIL | `updates={}` → `None` 哨兵 + 复制返回 | 3,362 / 1,244 |
+| 006 文件读取异常 | 3 项 FAIL | `with open(...)` + `FileNotFoundError` 返回空列表 | 2,906 / 471 |
+| 007 回文边界与索引 | 7 项 FAIL | `chars[n - i]` → `chars[n - 1 - i]`，空串返回 `True` | 3,996 / 642 |
+| 008 无值查询参数 | 5 项 FAIL | `split("=", 1)` → `partition("=")`，无 `=` 时值为空串 | 2,938 / 593 |
 
 005 触发一条审查标记：`merge_dicts(base, updates={})` → `merge_dicts(base, updates=None)`。这正是可变默认参数的标准修法（题目描述亦然），但签名变更仍按流程留给人工确认，报告不因测试全绿而自动放行。
+
+⚠️ 提示词缺陷与修正：上面表格替换了旧批次 `basic-003-008` 的数字。旧批次（2026-09-15 上午，修复之前）的下发命令没有带 `--task`，容器内退回了控制器内置的 `average()` 示例任务——模型实际被要求修的是 `average()` 而不是题库里的题，因此旧批次的数字与结论不能作为本题库的证据。目录保留不删，作为事故记录（见 `research/bug-bench-runs/PROMPT-INCIDENT.md`）；修正后重跑的批次放在 `*-prompted/` 目录。
+
+### 修正提示词后的 intermediate 与 advanced 批次
+
+`research/bug-bench-runs/intermediate-009-016-prompted/` 8 题中 7 题一次通过，016 首次 READ 返回了非 JSON 内容被判 `invalid_evidence`，改进 JSON 提取后重跑通过（`retry-016-html-escape-prompted/`），即 8/8 有证据；`advanced-017-020-prompted/` 3/3 通过，018 在入场预检阶段因 buggy 副本测试会永久挂起被拒绝（见下）。全部为 `deepseek-v4.1-flash`，每条 4 个动作、2 次 LLM 调用。
+
+那次 JSON 提取改进（`flycoder/llm.py` 的 `parse_coding_json`）只放宽“外壳”：模型把同一个对象放进 ``` 围栏或前面多写一句话时，取内容里第一个括号配平的完整对象；对象本身仍要过原有 schema 校验，纯文本、截断内容与字段类型错误照旧被拒。READ 阶段返回坏 JSON 会整轮作废并丢掉一次已付费调用，这类失败此前让 014 与 016 各损失一次运行。
+
+| 题目 | baseline | 修复 | token 入/出 |
+| --- | --- | --- | --- |
+| 009 CSV 引号内逗号 | 3 项 FAIL | 手写带引号状态的字段解析器 | 2,800 / 765 |
+| 010 计数器丢锁 | 2 项 FAIL | `threading.Lock()` 保护自增 | 2,642 / 636 |
+| 011 邮箱正则过宽 | 5 项 FAIL | 完整域名 + TLD 正则 | 2,824 / 1,310 |
+| 012 二分查找边界 | 6 项 FAIL | `left < right` → `left <= right` | 3,015 / 479 |
+| 013 LRU 顺序更新 | 4 项 FAIL | `get` 时先移除再追加到队尾 | 3,307 / 777 |
+| 014 限流竞态 | 2 项 FAIL | 锁保护时间戳窗口（上次该题因竞态不可复现被拒，本次复现并修复） | 3,133 / 912 |
+| 015 日期格式与校验 | 4 项 FAIL | 正则解析多分隔符 + 闰年/月天数校验 | 3,588 / 1,305 |
+| 016 HTML 转义顺序 | 5 项 FAIL | `&` 先替换（重跑后通过） | 3,009 / 508 |
+| 017 TCP 只读一次 | 2 项 FAIL | `while True` 循环直到 `recv` 为空 | 3,168 / 780 |
+| 019 中序递归丢结果 | 6 项 FAIL | 递归收集左右子树结果 | 2,953 / 620 |
+| 020 折扣精度 | 2 项 FAIL | 逐项 `Decimal` + `ROUND_HALF_UP` | 2,819 / 4,782 |
+
+015 有两条“未被测试引用的新增定义”（`_is_leap`、`_days_in_month`）审查标记；其余无标记。018_producer_consumer 的 buggy 副本会让测试永久挂起（队列满后无人消费、`put` 阻塞），入场预检在 `--baseline-timeout` 内不结束，按设计拒绝入场并写进批次汇总，未花任何 LLM 调用——这是题库自身的缺陷，不是控制器故障。
 
 ### 模型选择
 
 第一次 003 尝试用 `qwen3.8-flash`：3 次成功调用背后是 8 次 HTTP 尝试（5 次超时），容器创建后约 12 分钟仍以 `LLM connection failed or timed out` 结束。换用 `deepseek-v4.1-flash` 后，同一批六题从构建到导出共约 1 分钟，每题 10–11 秒、2 次调用 2 次 HTTP 尝试。超时尝试的证据单独保留在 `research/bug-bench-runs/basic-003-008-attempt1-aborted/`，未被覆盖或重写。
 
-运行记录现在写明实际使用的模型：`summary.json` 记录 `llm_model`（适配器自报），审查报告与 `batch.json` 一并展示。`basic-003-008` 这批运行早于该字段，`batch.json` 因此用 `llm_model_source` 标明模型取自批次时的宿主 `LLM_MODEL`，而非逐次记录。
+运行记录现在写明实际使用的模型：`summary.json` 记录 `llm_model`（适配器自报），审查报告与 `batch.json` 一并展示。`basic-003-008` 这批运行早于该字段，`batch.json` 因此用 `llm_model_source` 标明模型取自批次时的宿主 `LLM_MODEL`，而非逐次记录；修正提示词后重跑的 `*-prompted` 批次全部逐次记录 `llm_model=deepseek-v4.1-flash`。
 
 ## 审查报告
 

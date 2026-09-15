@@ -102,3 +102,14 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - `basic-003-008` 批次六题全部 `backend_verified=true, outcome=task_solved`，各 4 个动作、2 次 LLM 调用，共 12 次 HTTP 请求（无重试）、input 16,601 / output 6,607 tokens。基线均为 FAIL，修复分别为边界条件、初始值、可变默认参数、异常处理、索引计算与分隔符解析。
 - 005 的 diff 触发一条审查标记（`updates={}` → `updates=None`），即题目要求的标准修法，但仍按流程留待人工确认后才可合并。
 - 项目测试 95 项通过（含新增的批次脚本、导出路径、模型溯源用例；基础环境 2 项可选 NumPy 契约跳过）。
+
+
+
+## 2026-09-15 任务提示词缺陷、JSON 容错与修正后批次
+
+- **缺陷**：`scripts/run_task_bench.py` 组装的容器命令只有 `--repo/--llm/--seed/--runs` 等参数，漏了 `--task`；容器因此退回 `flycoder/__main__.py` 的内置示例任务（“Fix average(values)…”）。影响范围是此前三批 `basic-003-008`、`intermediate-009-016`、`advanced-017-020` 的全部运行：模型被要求修的是 `average()` 而不是题库里的题。测试证据来自题目副本本身，所以改动仍落在正确函数上，但这些运行不能作为“按题目描述修复”的证据，目录保留不删。
+- **修复**：新增 `task_prompt()`，从题目自己的 `task.json` 取 `title: description` 作为 `--task` 下发；缺 `description` 的题目在入场检查阶段被拒绝（不会静默退回内置任务）。实际下发文本写进 `inputs/<task>/source-manifest.json`、`batch.json` 的 `task_prompts` 与 `summary.md` 的 “Task prompts” 一节。新增 4 项测试，其中一项以 `--dry-run` 端到端断言每个容器的命令行都带上了该题自己的文本。
+- **修正后重跑**（全部 `deepseek-v4.1-flash`，`llm_model` 逐次记录）：`basic-003-008-prompted` 6/6 `task_solved`（12 次 HTTP 尝试、input 18,390 / output 4,039 tokens）；`intermediate-009-016-prompted` 8 题 7 次通过 + 016 在修复 JSON 解析后重跑通过；`advanced-017-020-prompted` 3/3 通过，018 入场被拒。每题仍为 4 个动作、2 次 LLM 调用，无重试。
+- **JSON 容错**：016 首次 READ 返回的内容不是裸 JSON 而被判 `invalid_evidence`，整轮作废并浪费一次已付费调用（014 早前同样如此）。`flycoder/llm.py` 新增 `parse_coding_json()`：对象外面套 ``` 围栏或前后多一段说明时，取内容里第一个括号配平的完整对象；对象本身仍走原有 schema 校验，纯文本、截断内容与字段类型错误照旧被拒，错误信息不变。6 项新测试覆盖围栏、说明文字、字符串内的花括号、截断内容与顶层数组。
+- **题库自身的缺陷**（非控制器故障，均按设计记录）：`014_rate_limiter` 的竞态并非每次都能复现，早前一次因未复现被拒入场，本轮复现并修复；`018_producer_consumer` 的 buggy 副本会让测试永久挂起（队列满后阻塞），入场预检在 `--baseline-timeout` 内不结束，因此以 `intake_rejected` 记一行并继续跑完批次，未花任何 LLM 调用。
+- 项目测试 108 项通过（基础 3.9.6 环境 2 项可选 NumPy 契约跳过；`.venv-neural` 3.11 与重建后的 `flycoder-local:latest` 容器内同样通过）。批次脚本的入场拒绝、`--baseline-timeout` 与相对 `--volume` 修复也一并纳入本轮。

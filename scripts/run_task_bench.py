@@ -83,6 +83,26 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def task_prompt(task_dir):
+    """The task text handed to the controller, taken from the task's own task.json.
+
+    Without this the controller silently falls back to its built-in demo task, so
+    every run would be asked to fix the wrong function.
+    """
+    task_dir = Path(task_dir)
+    path = task_dir / 'task.json'
+    try:
+        metadata = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f'{task_dir}: task.json could not be read ({exc})') from None
+    title = str(metadata.get('title') or '').strip()
+    description = str(metadata.get('description') or '').strip()
+    if not description:
+        raise ValueError(f'{path}: no description; the controller would fall back to '
+                         'its built-in demo task')
+    return f'{title}: {description}' if title else description
+
+
 def prepare_task(task_dir, destination):
     """Copy one task into an immutable run copy plus a unittest wrapper."""
     task_dir = Path(task_dir)
@@ -113,12 +133,18 @@ def prepare_task(task_dir, destination):
     return manifest
 
 
-def baseline_check(input_dir, expected_tests):
+def baseline_check(input_dir, expected_tests, timeout=180):
     """Run the untouched copy once; a broken intake must fail before the LLM is paid."""
-    result = subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover',
-                             '-s', 'tests', '-v'],
-                            cwd=str(input_dir), stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True)
+    try:
+        result = subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover',
+                                 '-s', 'tests', '-v'],
+                                cwd=str(input_dir), stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # A buggy copy whose tests block forever (a full queue nobody drains, a thread
+        # join that never returns) must be rejected here, not inside a paid container run.
+        raise ValueError(f'{input_dir}: the untouched copy did not finish within '
+                         f'{timeout}s; its tests hang on the buggy code') from None
     output = result.stdout
     match = [int(n) for n in re.findall(r'^Ran (\d+) tests? in ', output, re.MULTILINE)]
     ran = match[-1] if match else 0
@@ -143,9 +169,11 @@ def resolve_model(summary, fallback, ledger):
     return fallback
 
 
-def run_one(name, seed, input_dir, remote_runs, log_path, args):
+def run_one(name, seed, input_dir, remote_runs, log_path, args, task_text):
+    """Launch one container run; task_text is the prompt the controller is given."""
     command = compose_command(['run', '--rm', '-T', '--name', name, SERVICE,
                                '--llm', args.llm, '--repo', '/workspace',
+                               '--task', task_text,
                                '--seed', str(seed), '--runs', remote_runs,
                                '--tie-extra-windows', str(args.tie_extra_windows),
                                '--max-steps', str(args.max_steps),
@@ -207,28 +235,50 @@ def batch_summary_markdown(batch, rows):
                ('tied_scores', 'readout_silence', 'budget_exhausted')]
     broken = [r for r in rows if r.get('outcome') in ('coding_error', 'invalid_evidence',
                                                       'run_timeout')]
-    lines = [f'# FlyCoder task bench {batch}', '',
-             f'Runs: {len(rows)} | solved: {len(solved)} | policy stops: {len(stopped)} '
-             f'| needs attention: {len(broken)}', '']
+    rejected = [r for r in rows if r.get('outcome') == 'intake_rejected']
+    counts = (f'Runs: {len(rows) - len(rejected)} | solved: {len(solved)} '
+              f'| policy stops: {len(stopped)} | needs attention: {len(broken)}')
+    if rejected:
+        counts += f' | intake rejected: {len(rejected)}'
+    lines = [f'# FlyCoder task bench {batch}', '', counts, '']
     models = sorted({r['llm_model'] for r in rows if r.get('llm_model')})
     if models:
         lines.extend([f'Model: `{", ".join(models)}`', ''])
     if broken:
         lines.extend(['A coding error, timeout, or invalid evidence is not a policy '
                       'result and must be read on its own.', ''])
+    if rejected:
+        lines.extend(['An intake rejection never reached the LLM: the task copy was '
+                      'unusable, or its tests already passed untouched, so there was no '
+                      'bug to reproduce.', ''])
     lines.extend(['| task | seed | outcome | steps | llm calls | tokens in/out | flags |',
                   '| --- | --- | --- | --- | --- | --- | --- |'])
     for row in rows:
         usage = row.get('usage') or {}
         tokens = (f'{usage["input_tokens"]:,} / {usage["output_tokens"]:,}'
                   if usage else '—')
+        seed = row.get('seed')
         lines.append('| {task} | {seed} | {outcome} | {steps} | {calls} | {tokens} | '
-                     '{flags} |'.format(task=row.get('task', '?'), seed=row.get('seed', '?'),
+                     '{flags} |'.format(task=row.get('task', '?'),
+                                        seed='—' if seed is None else seed,
                                         outcome=row.get('outcome', row.get('status', '?')),
                                         steps=row.get('actions', '—'),
                                         calls=row.get('llm_calls', '—'), tokens=tokens,
                                         flags=len(row.get('review_flags', []))))
     lines.append('')
+    prompts = sorted({(r.get('task'), r.get('task_prompt')) for r in rows
+                      if r.get('task_prompt')})
+    if prompts:
+        lines.extend(['## Task prompts', '',
+                      'The exact text handed to the controller as `--task`.', ''])
+        for task, prompt in prompts:
+            lines.append(f'- `{task}`: {prompt}')
+        lines.append('')
+    if rejected:
+        lines.extend(['## Intake rejections', ''])
+        for row in rejected:
+            lines.append(f'- `{row["task"]}`: {row.get("reason", "unknown")}')
+        lines.append('')
     flagged = [(r, f) for r in rows for f in r.get('review_flags', [])]
     if flagged:
         lines.extend(['## Review flags', ''])
@@ -270,6 +320,8 @@ def main():
     parser.add_argument('--no-build', action='store_true')
     parser.add_argument('--no-baseline-check', action='store_true',
                         help='Skip the local pre-flight run of the untouched copy')
+    parser.add_argument('--baseline-timeout', type=int, default=180,
+                        help='Seconds allowed for the local pre-flight run')
     parser.add_argument('--require-done', action='store_true',
                         help='Non-zero exit unless every run solved the task')
     parser.add_argument('--dry-run', action='store_true')
@@ -305,25 +357,50 @@ def main():
     inputs.mkdir(parents=True, exist_ok=True)
     runs_root.mkdir(parents=True, exist_ok=True)
     manifests = {}
+    prompts = {}
+    rejected = {}
     for task in task_ids:
         if not any(planned_task == task for planned_task, _ in planned):
             continue
         destination = inputs / task
         if destination.exists():
             shutil.rmtree(destination)
-        manifests[task] = prepare_task(source / task, destination)
-        print(f'{task}: {len(manifests[task]["test_functions"])} upstream tests wrapped',
-              flush=True)
-        if args.no_baseline_check:
+        try:
+            # The controller needs the task in words: without --task it would fix its
+            # built-in demo function no matter which repository it is handed.
+            prompt = task_prompt(source / task)
+            manifest = prepare_task(source / task, destination)
+            if not args.no_baseline_check:
+                baseline = baseline_check(destination, len(manifest['test_functions']),
+                                          args.baseline_timeout)
+                if baseline['passed']:
+                    # One unsound task must not block the rest of the batch, but it is
+                    # never silently dropped either: it becomes its own row with its reason.
+                    raise ValueError('the untouched copy already passes its tests; '
+                                     'there is no observable bug to fix')
+        except ValueError as exc:
+            rejected[task] = str(exc)
+            print(f'{task}: rejected before running — {exc}', flush=True)
             continue
-        baseline = baseline_check(destination, len(manifests[task]['test_functions']))
-        if baseline['passed']:
-            parser.error(f'{task}: the untouched copy already passes its tests; '
-                         'there is no bug to fix')
-        print(f'{task}: baseline runs {baseline["tests_run"]} tests and fails as expected',
-              flush=True)
+        manifest['task_prompt'] = prompt
+        (destination / 'source-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        prompts[task] = prompt
+        manifests[task] = manifest
+        print(f'{task}: {len(manifest["test_functions"])} upstream tests wrapped', flush=True)
+        print(f'{task}: task prompt — {prompt}', flush=True)
+        if not args.no_baseline_check:
+            print(f'{task}: baseline runs {baseline["tests_run"]} tests and fails as '
+                  'expected', flush=True)
 
-    if not args.no_build and not args.dry_run:
+    for task, reason in sorted(rejected.items()):
+        rows.append({'task': task, 'seed': None, 'outcome': 'intake_rejected',
+                     'reason': reason})
+    planned = [(task, seed) for task, seed in planned if task in manifests]
+
+    if not planned:
+        print('no runnable task left after intake checks; skipping the image build',
+              flush=True)
+    if planned and not args.no_build and not args.dry_run:
         compose(['build', SERVICE], check=True)
 
     stopped_reason = None
@@ -338,9 +415,9 @@ def main():
         log_path = logs / f'{label}.log'
         print(f'=== {label}', flush=True)
         outcome = run_one(f'flycoder-{batch}-{label}', seed, inputs / task, remote,
-                          log_path, args)
+                          log_path, args, prompts[task])
         row = {'task': task, 'seed': seed, 'batch': batch,
-               'log': str(log_path.relative_to(batch_dir)),
+               'log': str(log_path.relative_to(batch_dir)), 'task_prompt': prompts[task],
                'run': outcome.get('status')}
         if outcome.get('status') == 'dry_run':
             rows.append(row)
@@ -389,7 +466,8 @@ def main():
                     'tie_extra_windows': args.tie_extra_windows,
                     'max_steps': args.max_steps, 'max_attempts': args.max_attempts,
                     'llm_timeout_seconds': args.llm_timeout,
-                    'manifests': manifests, 'http_attempts': ledger['http_attempts'],
+                    'manifests': manifests, 'task_prompts': prompts,
+                    'http_attempts': ledger['http_attempts'],
                     'stopped_reason': stopped_reason, 'results': rows,
                     'limitations': 'Small sample: one run per (task, seed). A policy stop '
                                    'is a legal controller outcome, not infrastructure '
@@ -399,7 +477,8 @@ def main():
         (batch_dir / 'summary.md').write_text(batch_summary_markdown(batch, rows) + '\n')
         print((batch_dir / 'summary.md').read_text(), flush=True)
 
-    if any(row.get('outcome') in ('run_timeout', 'invalid_evidence') for row in rows):
+    if any(row.get('outcome') in ('run_timeout', 'invalid_evidence', 'intake_rejected')
+           for row in rows):
         return 2
     unsolved = [row for row in rows if not row.get('task_solved')]
     if args.require_done and unsolved:

@@ -10,6 +10,56 @@ import urllib.request
 RETRYABLE_HTTP = {429, 500, 502, 503, 504}
 
 
+def _first_balanced_object(content: str, start: int):
+    """Span of the complete {...} object beginning at content[start] == '{'."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(content)):
+        char = content[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == '{':
+            depth += 1
+        elif char == '}':
+            depth -= 1
+            if depth == 0:
+                return content[start:index + 1]
+    return None
+
+
+def parse_coding_json(content: str):
+    """Parse the one JSON object a coding model was told to return.
+
+    Providers wrap that object in ``` fences or a sentence of prose surprisingly
+    often even when the request asks for JSON only; discarding the whole run for
+    that costs a paid call and hides the real coding evidence. The first complete
+    object in the content is used, and the caller still schema-checks it.
+    """
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    start = content.find('{')
+    while start != -1:
+        candidate = _first_balanced_object(content, start)
+        if candidate is not None:
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+        start = content.find('{', start + 1)
+    raise ValueError("Coding content is not valid JSON")
+
+
 def _retry_delay(retry_backoff: float, retry_index: int) -> float:
     return min(retry_backoff * (2 ** retry_index), 8.0)
 
@@ -148,7 +198,7 @@ class OpenAICodingAdapter(CodingAdapter):
         output = "".join(c.get("text", "") for item in result.get("output", [])
                          if item.get("type") == "message" for c in item.get("content", [])
                          if c.get("type") == "output_text")
-        parsed = json.loads(output)
+        parsed = parse_coding_json(output)
         if not isinstance(parsed, dict) or not isinstance(parsed.get("analysis"), str) or not isinstance(parsed.get("files"), dict):
             raise ValueError("Malformed coding response")
         return parsed
@@ -253,10 +303,7 @@ class ChatCompletionsCodingAdapter(OpenAICodingAdapter):
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, str) or not content.strip():
             raise ValueError("Provider returned empty coding content")
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
-            raise ValueError("Coding content is not valid JSON") from None
+        parsed = parse_coding_json(content)
         if (not isinstance(parsed, dict) or not isinstance(parsed.get("analysis"), str)
                 or not isinstance(parsed.get("files"), dict)
                 or any(not isinstance(v, str) for v in parsed["files"].values())):
