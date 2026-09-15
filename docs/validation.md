@@ -39,7 +39,7 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 
 - `fa0ef3a` 的 checks [run 34864923088](https://github.com/Liuycer/FlyCoder/actions/runs/34864923088) 和神经工作流 [run 34864923823](https://github.com/Liuycer/FlyCoder/actions/runs/34864923823) 均通过。
 - 神经制品中的受控重放显示：macOS/Linux 图与映射哈希一致，默认内核下放电仍有差异；no-contract 内核下放电与分数一致，但内部 `v/g` 仍有平台差异。
-- Linux 默认内核与 `-ffp-contract=off` 诊断内核的受控结果完全一致，因此浮点收缩不是本次差异的根因。
+- Linux 默认内核与 `-ffp-contract=off` 诊断内核的受控结果完全一致；这不能排除 macOS 侧浮点收缩的影响。macOS 关闭浮点收缩后，三次完整放电数组和动作分数均与 Linux 一致，但内部电压 `v`、电导 `g` 仍有差异。结论仅适用于本次固定回放，不保证任意任务跨平台逐位一致。
 - Linux 真实运行在第 5 步因合法 READ/TEST 并列停止，严格报告为 `backend_verified=true, task_solved=false, outcome=tied_scores`。
 - 本机已检测到 Docker 29.8.0，此前神经镜像构建曾进入导出阶段后因 Docker daemon 连接 EOF 失败；容器化神经镜像仍没有完整构建并运行实测。
 - 已从当前源码重建 v0.2.0 wheel/sdist；wheel 在源码外的独立虚拟环境安装并离线运行 `demo --mock-first-pass`，返回 `done`。

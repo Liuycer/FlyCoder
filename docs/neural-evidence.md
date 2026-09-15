@@ -74,7 +74,11 @@ Controller 的 error 事件还包含失败阶段、当前状态、候选文件�
 | Linux 默认内核 vs Linux no-contract 内核 | 一致 | 一致 | 一致 | 无 |
 | macOS no-contract vs Linux no-contract | 一致 | 一致 | 一致 | 仅 `v`、`g` |
 
-Linux 默认内核与诊断内核记录的二进制哈希同为 `b46d3c318f7a…`；no-contract 对照也没有改变 Linux 上的放电、分数或数组。因此在本测试的 Ubuntu clang 18/x86_64 固定工作负载中，浮点收缩（FMA contraction）不是受控输出差异的根因。关闭收缩后，macOS/Linux 的读出放电和分数一致，但内部 `v/g` 仍有平台相关差异；这说明低层状态并非逐位跨平台可复现，当前验收应继续以同平台重放和逐步证据为准。
+Linux 默认内核与诊断内核记录的二进制哈希同为 `b46d3c318f7a…`；关闭浮点收缩没有改变本次 Linux 上的放电、分数或数组。这只说明该编译选项在本次 Linux 构建中没有产生差异，不能据此排除 macOS 侧浮点收缩的影响。
+
+在图、初始数组、映射和刺激序列一致的对照中，macOS 默认内核与 no-contract 内核的三次放电数组均不同；macOS 关闭浮点收缩后，三次完整放电数组和动作分数均与 Linux 一致。因此，关闭 macOS 侧浮点收缩足以消除本次固定回放中的放电差异。
+
+关闭收缩后，macOS/Linux 的内部电压 `v` 和电导 `g` 仍有差异，其具体来源尚未确定。该实验没有证明所有数值差异均已消除，也不保证更长序列或其他任务跨平台逐位一致。默认内核和策略没有因此改变，验收仍以同平台重放和逐步证据为准。
 
 同一次 Linux 真实运行仍使用演示产生的映射 `3b25548a5476…`，第 5 步在合法 READ/TEST 并列处停止：两个分数均为 31.8 Hz，`top_margin_hz=0.0`。严格报告结论是 `backend_verified=true, task_solved=false, outcome=tied_scores`。
 
