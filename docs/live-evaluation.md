@@ -87,6 +87,8 @@ LLM_TIMEOUT=120 FLYCODER_TARGET_REPO=./research/llm-bug-bench-002/input \
 
 002 第一次 EDIT 删掉了 `parse_json` 本身，TEST 报 `ImportError`，控制器选择 RETRY 后第二次 EDIT 才通过：这正是“测试证据驱动重试”而非法则回退或假装成功的例子。002 的一次前置尝试在默认 `LLM_TIMEOUT` 下以连接超时告终，记录保留在 `research/llm-bug-bench-002/c2e8b410ebf443748a5ba59f2fc9f786/`，与成功运行分开保存。
 
+⚠️ 001 与 002 的这两次运行是手敲命令跑的，命令行同样漏了 `--task`（见下文的提示词缺陷），模型当时被要求修的是 `average()`；所以 002 的 diff 里才会多出题目无关的 `average()`，并把 `parse_json(text)` 改名成 `parse_json(s)`。修正后重跑（`research/bug-bench-runs/basic-001-002-prompted/`，`deepseek-v4.1-flash`）两题均 4 动作 2 次调用、无审查标记：001 仍是单行比较符号，002 保留 `parse_json(text)` 参数名、只加空值与异常处理。上表数字与“重试”叙事仍描述那两次历史运行，但不作为本题库的有效证据。
+
 ### 一条命令跑一批题目
 
 上面那串手敲命令已固化成 `scripts/run_task_bench.py`：准备不可变任务副本（含 unittest 薄包装、`fixed.py` 排除、逐文件 SHA-256）→ 可选 baseline 预检 → 整个批次只 `docker compose build` 一次 → 逐 (题目, seed) 在容器内运行并把 stdout/stderr 落盘 → 从命名卷导出证据 → `check_neural_run.py` 严格复验 → `report_run.py` 渲染审查报告 → 写批次汇总。
@@ -122,7 +124,9 @@ python3 scripts/run_task_bench.py \
 
 ### 修正提示词后的 intermediate 与 advanced 批次
 
-`research/bug-bench-runs/intermediate-009-016-prompted/` 8 题中 7 题一次通过，016 首次 READ 返回了非 JSON 内容被判 `invalid_evidence`，改进 JSON 提取后重跑通过（`retry-016-html-escape-prompted/`），即 8/8 有证据；`advanced-017-020-prompted/` 3/3 通过，018 在入场预检阶段因 buggy 副本测试会永久挂起被拒绝（见下）。全部为 `deepseek-v4.1-flash`，每条 4 个动作、2 次 LLM 调用。
+修正后的批次共 19 题：`basic-001-002-prompted/` 2/2、`basic-003-008-prompted/` 6/6、`intermediate-009-016-prompted/` 8/8（016 需重跑一次）、`advanced-017-020-prompted/` 3/3 + 018 入场被拒，全部 `deepseek-v4.1-flash`；以通过的那次运行计，每题 4 个动作、2 次 LLM 调用、2 次 HTTP 尝试，无重试。
+
+`research/bug-bench-runs/intermediate-009-016-prompted/` 8 题中 7 题一次通过，016 首次 READ 返回了非 JSON 内容被判 `invalid_evidence`，改进 JSON 提取后重跑通过（`retry-016-html-escape-prompted/`），即 8/8 有证据；`advanced-017-020-prompted/` 3/3 通过，018 在入场预检阶段因 buggy 副本测试会永久挂起被拒绝（见下）。
 
 那次 JSON 提取改进（`flycoder/llm.py` 的 `parse_coding_json`）只放宽“外壳”：模型把同一个对象放进 ``` 围栏或前面多写一句话时，取内容里第一个括号配平的完整对象；对象本身仍要过原有 schema 校验，纯文本、截断内容与字段类型错误照旧被拒。READ 阶段返回坏 JSON 会整轮作废并丢掉一次已付费调用，这类失败此前让 014 与 016 各损失一次运行。
 
@@ -159,6 +163,6 @@ python3 scripts/run_task_bench.py \
   --output research/llm-bug-bench-002/review.md
 ```
 
-测试通过只说明断言仍然成立，不说明改动可以合并，因此报告额外标记需要人判断的改动：编辑了测试文件（可能弱化断言）、改了已有函数的参数签名（关键字调用方会静默失败）、新增测试完全不引用的定义（可能超出题目范围）、删除仍被测试引用的定义。002 的 diff 触发了两条：多加了题目无关的 `average()`，并把 `parse_json(text)` 改名成 `parse_json(s)`——两条测试全绿但都不该直接合并。这类判断目前保留人工，合并仍需审查通过。
+测试通过只说明断言仍然成立，不说明改动可以合并，因此报告额外标记需要人判断的改动：编辑了测试文件（可能弱化断言）、改了已有函数的参数签名（关键字调用方会静默失败）、新增测试完全不引用的定义（可能超出题目范围）、删除仍被测试引用的定义。002 的历史 diff 触发了两条：多加了题目无关的 `average()`，并把 `parse_json(text)` 改名成 `parse_json(s)`——两条测试全绿但都不该直接合并；这两条正是提示词缺陷的产物，修正后重跑的 002 没有触发任何标记。这类判断目前保留人工，合并仍需审查通过。
 
 外部题库只证明流程可用，样本量仍是每题一次运行，不构成通过率结论。多题、多种子统计属于下一轮。
