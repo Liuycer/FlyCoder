@@ -9,7 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from report_run import generate_report
 
 
-def make_run(root, summary_extra=None, events=None, patch='', check=None):
+def make_run(root, summary_extra=None, events=None, patch='', check=None,
+             repo_files=None):
     run_dir = root / 'run'
     run_dir.mkdir(parents=True)
     summary = {
@@ -40,11 +41,65 @@ def make_run(root, summary_extra=None, events=None, patch='', check=None):
     (run_dir / 'events.jsonl').write_text(
         '\n'.join(json.dumps(e) for e in all_events) + '\n')
     (run_dir / 'changes.patch').write_text(patch)
+    for name, content in (repo_files or {}).items():
+        path = run_dir / 'repo' / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
     check_path = None
     if check:
         check_path = root / 'check.json'
         check_path.write_text(json.dumps(check))
     return run_dir, check_path
+
+
+SCOPE_PATCH = '''diff --git a/buggy.py b/buggy.py
+--- a/buggy.py
++++ b/buggy.py
+@@ -1,2 +1,4 @@
+-def parse_json(text):
+-    return json.loads(text)
++def parse_json(s):
++    try:
++        return json.loads(s)
++    except ValueError:
++        return None
++
++def average(values):
++    return sum(values) / len(values)
+'''
+
+BODY_ONLY_PATCH = '''diff --git a/buggy.py b/buggy.py
+--- a/buggy.py
++++ b/buggy.py
+@@ -1,2 +1,3 @@
+ def parse_json(text):
+-    return json.loads(text)
++    try:
++        return json.loads(text)
++    except ValueError:
++        return None
+'''
+
+TEST_EDIT_PATCH = '''diff --git a/tests/test_original.py b/tests/test_original.py
+--- a/tests/test_original.py
++++ b/tests/test_original.py
+@@ -1,2 +1,2 @@
+-def test_parse_empty_string():
++def test_parse_empty_string():
++    assert True
+'''
+
+TEST_SOURCE = '''import unittest
+from buggy import parse_json
+
+
+class JsonTests(unittest.TestCase):
+    def test_parse_empty_string(self):
+        self.assertIsNone(parse_json(""))
+
+    def test_parse_valid(self):
+        self.assertEqual(parse_json('{"a": 1}'), {"a": 1})
+'''
 
 
 class ReportRunTests(unittest.TestCase):
@@ -104,6 +159,35 @@ class ReportRunTests(unittest.TestCase):
         run_dir, _ = make_run(self.root, patch='')
         report = generate_report(run_dir)
         self.assertIn('_No changes._', report)
+
+    def test_flags_scope_and_compatibility(self):
+        run_dir, _ = make_run(self.root, patch=SCOPE_PATCH,
+                              repo_files={'test_buggy.py': TEST_SOURCE})
+        report = generate_report(run_dir)
+        self.assertIn('**buggy.py** −2 / +7', report)
+        self.assertIn('**Untested addition**: `average`', report)
+        self.assertIn('**Signature changed**: `parse_json(text)` → `parse_json(s)`',
+                      report)
+        self.assertIn('1 worth blocking a merge', report)
+
+    def test_flags_test_file_edit(self):
+        run_dir, _ = make_run(self.root, patch=TEST_EDIT_PATCH,
+                              repo_files={'tests/test_original.py': TEST_SOURCE})
+        report = generate_report(run_dir)
+        self.assertIn('**Test file edited**: `tests/test_original.py`', report)
+        self.assertIn('were not weakened', report)
+
+    def test_clean_patch_has_no_flags(self):
+        run_dir, _ = make_run(self.root, patch=BODY_ONLY_PATCH,
+                              repo_files={'test_buggy.py': TEST_SOURCE})
+        report = generate_report(run_dir)
+        self.assertIn('_None: no test file was edited', report)
+        self.assertNotIn('review flag(s)', report)
+
+    def test_missing_repo_snapshot_reports_info_flag(self):
+        run_dir, _ = make_run(self.root, patch=SCOPE_PATCH)
+        report = generate_report(run_dir)
+        self.assertIn('no test snapshot available', report)
 
 
 if __name__ == '__main__':

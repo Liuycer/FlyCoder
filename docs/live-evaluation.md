@@ -53,3 +53,51 @@ HTTP 重试也消耗总请求预算；到达上限后不会再发请求。报告
 21 次真实 benchmark 运行共发起 45 次 HTTP 请求，记录到 28,954 个 input tokens 与 31,467 个 output tokens。共 41 份 usage，4 次 HTTP 尝试没有对应 usage；金额仍需以 BAI 账单为准。额外的本地容器 BAI smoke 不包含在这组请求/token 汇总中。
 
 原始记录保存在 `research/benchmark-bai-live-v1/`、`research/benchmark-extended-bai/`、`research/benchmark-extended-offline/`。可提交的汇总与报告 SHA-256 在 `benchmarks/results/live-local-2026-09-15.json`。
+
+## 外部题库：llm-bug-bench
+
+`benchmarks/` 的任务由我们自己编写。为检验同一套控制器能否处理真实仓库风格的题目，改从外部题库 `llm-bug-bench` 取题，在本地容器内用真实 BAI + MaleCNS 运行。题库仓库保持只读，任务副本、日志与证据一律放在不入库的 `research/`：
+
+```text
+research/llm-bug-bench-<id>/input/            # 交给容器的只读任务副本
+research/llm-bug-bench-<id>/input/tests/test_original.py   # pytest 风格 → unittest 薄包装
+research/llm-bug-bench-<id>/source-manifest.json           # 三个源文件的 SHA-256，显式排除 fixed.py
+research/llm-bug-bench-<id>/<run-id>/                       # summary.json / events.jsonl / changes.patch / repo 快照
+```
+
+FlyCoder 固定运行 `python -m unittest discover -s tests -v`，而题库测试是不带 `TestCase` 的 pytest 风格函数，因此薄包装用 `load_tests` 把原函数逐个包成 `unittest.FunctionTestCase`，并要求数量与题目声明一致（001 六个、002 五个），数量不符直接抛错。包装层不修改任何断言；参考实现 `fixed.py` 不进副本，避免模型抄答案。
+
+构建与运行（`FLYCODER_TARGET_REPO` 指向任务副本，`LLM_TIMEOUT` 视 BAI 延迟上调）：
+
+```bash
+FLYCODER_TARGET_REPO=./research/llm-bug-bench-002/input \
+  docker compose -f docker-compose.neural.yml -f docker-compose.local.yml build flycoder-neural
+LLM_TIMEOUT=120 FLYCODER_TARGET_REPO=./research/llm-bug-bench-002/input \
+  docker compose -f docker-compose.neural.yml -f docker-compose.local.yml run --rm \
+  flycoder-neural --llm chat-completions --repo /workspace --editable buggy.py \
+  --seed 0 --runs /data/runs/llm-bug-bench-002 --tie-extra-windows 2
+```
+
+本机 arm64 结果，两次均由 `scripts/check_neural_run.py` 判为 `backend_verified=true, outcome=task_solved`：
+
+| 题目 | baseline | 动作链 | 修复 | LLM 调用 |
+| --- | --- | --- | --- | --- |
+| 001 排序比较符号反向 | 6 项 FAIL | READ → EDIT → TEST → DONE（4 步） | 单行 `<` 改 `>` | 2 |
+| 002 `parse_json` 缺空值/异常处理 | 5 项 3 ERROR | READ → EDIT → TEST → READ → RETRY → EDIT → TEST → DONE（8 步） | 空串/空白返回 `None` + `try/except` | 4 |
+
+002 第一次 EDIT 删掉了 `parse_json` 本身，TEST 报 `ImportError`，控制器选择 RETRY 后第二次 EDIT 才通过：这正是“测试证据驱动重试”而非法则回退或假装成功的例子。002 的一次前置尝试在默认 `LLM_TIMEOUT` 下以连接超时告终，记录保留在 `research/llm-bug-bench-002/c2e8b410ebf443748a5ba59f2fc9f786/`，与成功运行分开保存。
+
+## 审查报告
+
+`scripts/report_run.py` 把一份运行目录渲染成人可读的 Markdown，不必翻 `summary.json`：结论（✅ `task_solved` / ⚠️ 合法策略停止 / ❌ 证据不成立）、动作链、每个文件的 `−x / +y` 与完整 diff、Review flags、LLM 请求与 token、神经后端指纹、baseline 失败明细。
+
+```bash
+.venv-neural/bin/python scripts/report_run.py \
+  --run-dir research/llm-bug-bench-002/<run-id> \
+  --check-report research/llm-bug-bench-002/check-report.json \
+  --output research/llm-bug-bench-002/review.md
+```
+
+测试通过只说明断言仍然成立，不说明改动可以合并，因此报告额外标记需要人判断的改动：编辑了测试文件（可能弱化断言）、改了已有函数的参数签名（关键字调用方会静默失败）、新增测试完全不引用的定义（可能超出题目范围）、删除仍被测试引用的定义。002 的 diff 触发了两条：多加了题目无关的 `average()`，并把 `parse_json(text)` 改名成 `parse_json(s)`——两条测试全绿但都不该直接合并。这类判断目前保留人工，合并仍需审查通过。
+
+外部题库只证明流程可用，样本量仍是每题一次运行，不构成通过率结论。多题、多种子统计属于下一轮。

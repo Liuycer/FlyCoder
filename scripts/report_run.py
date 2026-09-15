@@ -5,8 +5,13 @@ remains in summary.json, events.jsonl, and changes.patch.
 """
 import argparse
 import json
+import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+
+DEF_RE = re.compile(r'(?:^|[^.\w])(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)')
+CLASS_RE = re.compile(r'(?:^|[^.\w])class\s+([A-Za-z_]\w*)')
 
 
 def load_json(path):
@@ -91,6 +96,118 @@ def format_baseline_failures(baseline_event):
     return failures
 
 
+def split_patch_by_file(patch):
+    """Group added and removed lines of a unified diff by target path."""
+    files = {}
+    current = None
+    for line in patch.splitlines():
+        header = re.match(r'^\+\+\+ (?:b/)?(.+)$', line)
+        if header:
+            path = header.group(1).strip()
+            if path == '/dev/null':
+                current = None
+                continue
+            current = path
+            files.setdefault(current, {'added': [], 'removed': []})
+            continue
+        if current is None or line.startswith('--- ') or line.startswith('@@'):
+            continue
+        if line.startswith('+'):
+            files[current]['added'].append(line[1:])
+        elif line.startswith('-'):
+            files[current]['removed'].append(line[1:])
+    return {path: {'added': '\n'.join(parts['added']),
+                   'removed': '\n'.join(parts['removed'])}
+            for path, parts in files.items()}
+
+
+def is_test_path(path):
+    name = Path(path).name
+    return (name.startswith('test_') or name.endswith('_test.py')
+            or PurePosixPath(path).parent.name in ('test', 'tests'))
+
+
+def definitions(text):
+    """Return {name: normalized parameter list} for defs plus {name: None} for classes."""
+    found = {}
+    for name, params in DEF_RE.findall(text or ''):
+        found[name] = re.sub(r'\s+', ' ', params).strip()
+    for name in CLASS_RE.findall(text or ''):
+        found.setdefault(name, None)
+    return found
+
+
+def test_source_text(run_dir):
+    """Concatenate the test files present in the final repo snapshot."""
+    repo = Path(run_dir) / 'repo'
+    if not repo.is_dir():
+        return None
+    chunks = []
+    for path in sorted(repo.rglob('*.py')):
+        if not is_test_path(str(path.relative_to(repo))):
+            continue
+        try:
+            chunks.append(path.read_text(encoding='utf-8', errors='replace'))
+        except OSError:
+            continue
+    return '\n'.join(chunks)
+
+
+def diff_stat_lines(patch_files):
+    lines = []
+    for path, parts in patch_files.items():
+        added = len([l for l in parts['added'].splitlines() if l.strip()])
+        removed = len([l for l in parts['removed'].splitlines() if l.strip()])
+        lines.append(f'**{path}** −{removed} / +{added}')
+    return lines
+
+
+def review_flags(patch_files, tests_text):
+    """Flag diff changes a reviewer must judge before merging.
+
+    Passing tests only prove the suite still holds; it does not prove the edit
+    stayed inside the task or stayed backwards compatible.
+    """
+    flags = []
+    for path, parts in patch_files.items():
+        if is_test_path(path):
+            flags.append(f'- ⚠️ **Test file edited**: `{path}` — confirm the tests '
+                         'were not weakened.')
+    added_defs = {}
+    removed_defs = {}
+    for path, parts in patch_files.items():
+        if is_test_path(path):
+            continue
+        for name, params in definitions(parts['added']).items():
+            added_defs.setdefault(name, (path, params))
+        for name, params in definitions(parts['removed']).items():
+            removed_defs.setdefault(name, (path, params))
+
+    for name, (path, params) in added_defs.items():
+        if name in removed_defs:
+            old_params = removed_defs[name][1]
+            if params is not None and old_params is not None and params != old_params:
+                flags.append(f'- ⚠️ **Signature changed**: `{name}({old_params})` → '
+                             f'`{name}({params})` in `{path}` — callers using keyword '
+                             'arguments can break silently.')
+            continue
+        if tests_text is None:
+            flags.append(f'- ℹ️ **New definition**: `{name}` added in `{path}` — no test '
+                         'snapshot available to check whether it is exercised.')
+            continue
+        if not re.search(r'\b' + re.escape(name) + r'\b', tests_text):
+            flags.append(f'- ℹ️ **Untested addition**: `{name}` added in `{path}` is not '
+                         'referenced by any test — possibly outside the scope of the bug.')
+
+    for name, (path, params) in removed_defs.items():
+        if name in added_defs or params is None:
+            continue
+        if tests_text and re.search(r'\b' + re.escape(name) + r'\b', tests_text):
+            flags.append(f'- ⚠️ **Definition removed**: `{name}` in `{path}` is still '
+                         'referenced by the tests.')
+    return flags
+
+
 def format_llm_usage(summary):
     calls = summary.get('llm_calls', 0)
     attempts = summary.get('llm_http_attempts', 0)
@@ -147,17 +264,33 @@ def generate_report(run_dir, check_report=None):
     check = load_json(check_report) if check_report else None
 
     baseline = next((e for e in events if e.get('event') == 'baseline'), None)
+    patch_files = split_patch_by_file(patch)
+    flags = review_flags(patch_files, test_source_text(run_dir))
     lines = ['# FlyCoder run report', '',
              f'## Verdict', '', verdict_line(summary, check), '']
+    if flags:
+        blocking = sum(1 for f in flags if f.startswith('- ⚠️'))
+        note = f'{len(flags)} review flag(s) below'
+        if blocking:
+            note += f' ({blocking} worth blocking a merge)'
+        lines.append(note + ' — passing tests are necessary but not sufficient to merge.')
+        lines.append('')
 
     lines.extend(['## Actions', ''])
     lines.extend(format_actions(events))
     lines.append('')
 
     if patch.strip():
-        lines.extend(['## Diff', '', '```diff', patch.rstrip(), '```', ''])
+        lines.extend(['## Diff', ''])
+        lines.extend(diff_stat_lines(patch_files))
+        lines.extend(['', '```diff', patch.rstrip(), '```', ''])
     else:
         lines.extend(['## Diff', '', '_No changes._', ''])
+
+    lines.extend(['## Review flags', ''])
+    lines.extend(flags or ['_None: no test file was edited, no signature changed, and '
+                           'every added definition is referenced by the tests._'])
+    lines.append('')
 
     lines.extend(['## LLM usage', ''])
     lines.extend(format_llm_usage(summary))

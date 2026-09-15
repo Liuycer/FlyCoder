@@ -82,3 +82,13 @@ DeepSeek/自定义接口更新：28 项测试全部通过，新增 Chat Completi
 - 新增共享 HTTP 请求预算（含重试）、token 记录和连接中断有限重试；70 项测试通过。
 - 本地 Docker 使用已验证神经运行镜像更新代码，避免重下数据；已验证 BAI demo、多文件只读挂载与独立 Git 副本。真实 BAI 与多文件运行记录均导出并严格复验。
 - 详见 [真实评测](live-evaluation.md)、[本地部署](local-deployment.md)。本轮按用户要求继续本地使用，没有外部服务器部署。
+
+
+## 2026-09-15 远程镜像验收、用量记录与外部题库修复
+
+- 远程 [run 34937809743](https://github.com/Liuycer/FlyCoder/actions/runs/34937809743) 在 `0a0dda7` 上通过：修复了工作流发现运行证据的路径（改用 `--runs`），产出 `tied_scores`，`backend_verified=true`，属 x86_64 合法策略停止而非故障。证据包 39 个文件的哈希与 tar.gz 内清单一致。
+- `summary.json` 现在记录 `llm_calls`、`llm_http_attempts` 与逐次 `llm_usage`，缺失用量保持缺失不填零。
+- 新增 `scripts/report_run.py`：输出结论、动作链、分文件 diff 统计、LLM 请求与 token、神经后端指纹、baseline 失败明细，并额外标记测试通过但仍需人工判断的改动（改测试文件、改参数签名、加未被测试引用的定义、删仍被引用的定义）。
+- 外部题库 `llm-bug-bench` 两道题在本机 arm64 容器内以真实 BAI + MaleCNS 运行成功：001 四步 `task_solved`（单行比较符号修复），002 八步 `task_solved`（首次 EDIT 破坏导入后由 RETRY 恢复）。两次均通过 `check_neural_run.py` 严格复验，题库原件未改动，参考实现 `fixed.py` 排除在任务副本之外。
+- 002 的运行 diff 触发两条审查标记（无关的 `average()`、`parse_json` 参数改名），按流程保留人工审查、未自动合并。
+- 项目测试 82 项通过（基础环境 2 项可选 NumPy 契约跳过）。
