@@ -2,6 +2,11 @@ name: FlyCoder neural Docker check
 
 on:
   workflow_dispatch:
+    inputs:
+      benchmark:
+        description: Run the offline four-policy benchmark (no LLM requests)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,6 +46,18 @@ jobs:
           docker compose -f docker-compose.neural.yml config --no-interpolate \
             > "$EVIDENCE_DIR/container/compose-config.yaml"
           docker image inspect "$IMAGE" > "$EVIDENCE_DIR/container/image.json"
+
+      - name: Run optional policy benchmark
+        if: inputs.benchmark
+        run: |
+          set -euo pipefail
+          docker volume create "$RUN_VOLUME"
+          docker run --rm --user 10001:10001 --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --network none --memory 4g --memory-swap 4g \
+            --cpus 2 --pids-limit 256 --init --tmpfs /tmp:size=256m,mode=1777 \
+            --env NUMBA_CACHE_DIR=/tmp/numba-cache --volume "$RUN_VOLUME:/data/runs:rw" \
+            --entrypoint /app/.venv-neural/bin/python "$IMAGE" \
+            scripts/benchmark_policies.py --output /data/runs/policy-benchmark
 
       - name: Run secured mock neural demo
         run: |
@@ -86,6 +103,10 @@ jobs:
           if docker volume inspect "$RUN_VOLUME" > /dev/null 2>&1; then
             docker volume inspect "$RUN_VOLUME" > "$EVIDENCE_DIR/container/volume.json"
           fi
+
+      - name: Collect optional benchmark evidence
+        if: always() && inputs.benchmark
+        run: docker cp "$CONTAINER_NAME":/data/runs/policy-benchmark "$EVIDENCE_DIR/benchmark"
 
       - name: Require valid strict run evidence
         run: |

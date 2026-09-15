@@ -1,0 +1,34 @@
+[
+  {
+    "id": "average",
+    "task": "Return the arithmetic mean; reject empty inputs with ValueError.",
+    "repair_after": 2,
+    "editable": [
+      "module.py"
+    ]
+  },
+  {
+    "id": "clamp",
+    "task": "Clamp x to the inclusive [low, high] interval; reject reversed bounds.",
+    "repair_after": 1,
+    "editable": [
+      "module.py"
+    ]
+  },
+  {
+    "id": "unique",
+    "task": "Remove duplicates while preserving first occurrence order, including unhashable values.",
+    "repair_after": 3,
+    "editable": [
+      "module.py"
+    ]
+  },
+  {
+    "id": "chunks",
+    "task": "Split a list into chunks of positive integer size, preserving the final partial chunk; reject nonpositive sizes.",
+    "repair_after": 2,
+    "editable": [
+      "module.py"
+    ]
+  }
+]

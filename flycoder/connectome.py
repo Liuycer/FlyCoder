@@ -76,7 +76,11 @@ class NeuralSelectionError(RuntimeError):
 
 class NeuralConnectome(ConnectomeAdapter):
     """Record every selection attempt before enforcing the no-fallback rule."""
-    def __init__(self, backend: NeuralBackend):
+    def __init__(self, backend: NeuralBackend, tie_extra_windows: int = 0):
+        if type(tie_extra_windows) is not int or not 0 <= tie_extra_windows <= 2:
+            raise ValueError("tie_extra_windows must be an integer from 0 to 2")
+        self.tie_extra_windows = tie_extra_windows
+        self.selection_calls = 0
         self.backend = backend
         self.last_trace = None
         self.last_decision = None
@@ -84,6 +88,7 @@ class NeuralConnectome(ConnectomeAdapter):
     def reset(self, seed: int = 0) -> None:
         self.last_trace = None
         self.last_decision = None
+        self.selection_calls = 0
         self.backend.reset(seed)
 
     def select(self, observation: dict, allowed: Sequence[Action]) -> Action:
@@ -98,8 +103,9 @@ class NeuralConnectome(ConnectomeAdapter):
             'tied_actions': [],
         }
         try:
-            scores = self.backend.stimulate_and_step(observation['features'])
-            self.last_trace = deepcopy(getattr(self.backend, 'last_trace', None))
+            scores = self.measure(observation['features'], allowed)
+            if self.last_trace is None:
+                self.last_trace = deepcopy(getattr(self.backend, 'last_trace', None))
             if not isinstance(scores, dict) or not allowed or any(
                 isinstance(scores.get(a.value), bool)
                 or not isinstance(scores.get(a.value), (int, float))
@@ -127,6 +133,45 @@ class NeuralConnectome(ConnectomeAdapter):
             if reason == 'silent_readouts' and self.last_trace:
                 self.last_decision['scores_hz'] = deepcopy(self.last_trace.get('scores_hz'))
             raise
+
+    def measure(self, features, allowed):
+        if not self.tie_extra_windows:
+            return self.backend.stimulate_and_step(features)
+        self.selection_calls += 1
+        windows = []
+        for _ in range(1 + self.tie_extra_windows):
+            try:
+                self.backend.stimulate_and_step(features)
+            except NeuralSelectionError as exc:
+                if exc.reason != 'silent_readouts':
+                    raise
+                # Silence remains a stop, not a trigger for extra sampling.
+                if not windows:
+                    windows.append(deepcopy(self.backend.last_trace))
+                    self.last_trace = self.aggregate(windows)
+                    raise
+            window = deepcopy(getattr(self.backend, 'last_trace', None))
+            if not isinstance(window, dict) or 'readout_spikes' not in window:
+                raise ValueError('Accumulation requires measured spike counts')
+            windows.append(window)
+            self.last_trace = self.aggregate(windows)
+            scores = self.last_trace['scores_hz']
+            best = max(scores[a.value] for a in allowed)
+            if sum(scores[a.value] == best for a in allowed) == 1:
+                break
+        return self.last_trace['scores_hz']
+
+    def aggregate(self, windows):
+        duration = sum(w['simulated_ms'] for w in windows)
+        counts = {a: sum(w['readout_spikes'][a] for w in windows)
+                  for a in windows[0]['readout_spikes']}
+        sizes = windows[0]['provenance']['readout_sizes']
+        return {'schema': 'flycoder.neural-accumulation.v1',
+                'call': self.selection_calls, 'tie_extra_windows': self.tie_extra_windows,
+                'windows': windows, 'simulated_ms': duration,
+                'cumulative_simulated_ms': windows[-1]['cumulative_simulated_ms'],
+                'readout_spikes': counts,
+                'scores_hz': {a: counts[a] / sizes[a] * 1000 / duration for a in counts}}
 
     def feedback(self, reward: float, observation: dict) -> None:
         self.backend.reward(reward)

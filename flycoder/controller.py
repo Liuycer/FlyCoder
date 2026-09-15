@@ -58,6 +58,7 @@ class Controller:
                    "sandbox": str(self.sandbox.root),
                    "policy": type(self.policy).__name__, "coder": type(self.coder).__name__,
                    "explore_actions": self.explore_actions, "seed": self.seed,
+                   "tie_extra_windows": getattr(self.policy, "tie_extra_windows", 0),
                    "max_steps": self.max_steps, "max_attempts": self.max_attempts,
                    "repo_fingerprint": self.sandbox.fingerprint(),
                    "tested_fingerprint": self.tested_fingerprint,

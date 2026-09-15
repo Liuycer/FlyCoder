@@ -90,7 +90,34 @@ def check_trace(trace, step):
         require(integer(sizes[action], 1) and integer(spikes[action]), 'Invalid readout count')
         expected = spikes[action] / sizes[action] * 1000 / trace['simulated_ms']
         require(math.isclose(scores[action], expected, rel_tol=1e-12, abs_tol=1e-12), 'Rate does not match readout spike count')
-    return (trace['graph_sha256'], trace['mapping_sha256'], trace['neurons'], trace['edges'], provenance)
+    return (trace['graph_sha256'], trace['mapping_sha256'], trace['neurons'], trace['edges'], provenance, trace['simulated_ms'])
+
+
+def check_accumulation(trace, step, previous_calls, observation, allowed, extra):
+    require(isinstance(trace, dict) and trace.get('schema') == 'flycoder.neural-accumulation.v1', 'Missing accumulation trace')
+    require(trace.get('call') == step and trace.get('tie_extra_windows') == extra, 'Accumulation configuration mismatch')
+    windows = trace.get('windows')
+    require(isinstance(windows, list) and 1 <= len(windows) <= extra + 1, 'Invalid window budget')
+    counts = {a: 0 for a in NAMES}
+    duration = 0
+    identity = stimulus = None
+    previous_tied = True
+    for index, window in enumerate(windows):
+        require(previous_tied, 'Extra window after unique maximum or silence')
+        current = check_trace(window, previous_calls + index + 1)
+        if identity is None:
+            identity, stimulus = current, window['stimulus_sha256']
+        require(current == identity and window['stimulus_sha256'] == stimulus, 'Window identity/stimulus changed')
+        duration += window['simulated_ms']
+        for a in NAMES:
+            counts[a] += window['readout_spikes'][a]
+        scores = {a: counts[a] / window['provenance']['readout_sizes'][a] * 1000 / duration for a in NAMES}
+        best = max(scores[a] for a in allowed)
+        previous_tied = sum(scores[a] == best for a in allowed) > 1 and any(scores.values())
+    require(trace.get('readout_spikes') == counts and trace.get('scores_hz') == scores, 'Incorrect accumulated scores/counts')
+    require(trace.get('simulated_ms') == duration and trace.get('cumulative_simulated_ms') == windows[-1]['cumulative_simulated_ms'], 'Incorrect accumulated time')
+    require(not previous_tied or len(windows) == extra + 1, 'Tie stopped before declared window budget')
+    return identity, previous_calls + len(windows)
 
 
 def check_decision(decision, trace, observation, allowed, action=None):
@@ -155,6 +182,9 @@ def validate_run(summary_path):
     require(sha(fingerprint), 'Missing baseline fingerprint')
     replay = Controller(None, None, None, None, '', Path('.'), summary['max_steps'], summary['max_attempts'], summary['explore_actions'], summary['seed'])
     state = replay.state
+    extra = summary.get('tie_extra_windows', 0)
+    require(type(extra) is int and 0 <= extra <= 2, 'Invalid accumulation budget')
+    neural_calls = 0
     actions = 0
     tested_fingerprint = None
     last_trace = last_decision = identity = rejection = None
@@ -168,7 +198,10 @@ def validate_run(summary_path):
         check_state_record(event.get('state'))
         require(event.get('observation') == observation and event.get('allowed') == allowed, 'Event state input or legal mask mismatch')
         trace, decision = event.get('neural_trace'), event.get('neural_decision')
-        current_identity = check_trace(trace, state.step)
+        if extra:
+            current_identity, neural_calls = check_accumulation(trace, state.step, neural_calls, observation, allowed, extra)
+        else:
+            current_identity = check_trace(trace, state.step)
         if identity is None:
             identity = deepcopy(current_identity)
         require(current_identity == identity, 'Graph/mapping/kernel identity changed within run')

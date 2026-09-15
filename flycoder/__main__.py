@@ -26,10 +26,13 @@ def main() -> int:
     parser.add_argument("--max-attempts", type=int, default=int(os.getenv("MAX_ATTEMPTS", "3")))
     parser.add_argument("--test-timeout", type=float, default=float(os.getenv("TEST_TIMEOUT", "15")))
     parser.add_argument("--mock-first-pass", action="store_true", help="Skip deliberate first-edit failure")
+    parser.add_argument('--tie-extra-windows', type=int, choices=[0, 1, 2], default=0, help='Experimental: accumulate up to this many extra neural windows on ties')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--explore-actions', action='store_true', help='Use the broader action mask for baseline comparisons')
     parser.add_argument('--neural-control', choices=['intact', 'no-stimulus', 'disconnected', 'shuffled-readout'], default='intact')
     args = parser.parse_args()
+    if args.tie_extra_windows and args.connectome not in {'malecns', 'doomfly'}:
+        parser.error('--tie-extra-windows requires a neural backend')
     if args.connectome == 'flywire':
         parser.error('FlyWire is not implemented; MaleCNS mappings cannot be reused for FlyWire')
     if args.connectome not in {'mock', 'random', 'malecns', 'doomfly'}:
@@ -53,7 +56,7 @@ def main() -> int:
             raise ValueError("Unknown LLM_ADAPTER")
         if args.connectome in {'malecns', 'doomfly'}:
             from .malecns import MaleCNSBackend
-            policy = NeuralConnectome(MaleCNSBackend(control=args.neural_control))
+            policy = NeuralConnectome(MaleCNSBackend(control=args.neural_control), args.tie_extra_windows)
         elif args.connectome == 'random':
             policy = RandomConnectome()
         else:
